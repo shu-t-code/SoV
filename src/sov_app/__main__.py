@@ -8,24 +8,17 @@ Usage examples:
 from __future__ import annotations
 
 import sys
+import logging
 from pathlib import Path
 from typing import Sequence
 
 
 USAGE = "Usage: python -m sov_app <path_to_model_onefile.csv>"
+logger = logging.getLogger("sov_app")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = list(argv if argv is not None else sys.argv)
-
-    if len(args) < 2:
-        print(f"[ERROR] CSV path is required.\n{USAGE}", file=sys.stderr)
-        return 2
-
-    csv_path = Path(args[1]).expanduser()
-    if not csv_path.exists():
-        print(f"[ERROR] CSV file not found: {csv_path}", file=sys.stderr)
-        return 2
 
     from PySide6.QtWidgets import QApplication
 
@@ -38,6 +31,28 @@ def main(argv: Sequence[str] | None = None) -> int:
     if app is None:
         app = QApplication(sys.argv)
         created = True
+
+    if len(args) >= 2:
+        csv_path = Path(args[1]).expanduser()
+    else:
+        from PySide6.QtWidgets import QFileDialog
+
+        selected_path, _ = QFileDialog.getOpenFileName(
+            None,
+            "Open model_onefile.csv",
+            "",
+            "CSV Files (*.csv);;All Files (*)",
+        )
+        if not selected_path:
+            logger.info("No CSV file selected. Exiting without launching the app.")
+            return 0
+        csv_path = Path(selected_path).expanduser()
+
+    if not csv_path.exists():
+        logger.error("CSV file not found: %s", csv_path)
+        logger.error(USAGE)
+        return 2
+
     app.setFont(app_onefile.setup_font())
 
     app_onefile.MODEL_ONEFILE_CSV_PATH = csv_path
