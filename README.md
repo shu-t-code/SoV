@@ -13,3 +13,10 @@ python3 app_onefile.py
 ```bash
 PYTHONPATH=src python3 -c "from pathlib import Path; from sov_app.io_csv import load_data_from_csv; g, f = load_data_from_csv(Path('model_onefile.csv')); print(type(g), type(f))"
 ```
+
+## Windows向け最小動作確認手順
+
+```powershell
+pip install -e .
+python app_onefile.py
+```
