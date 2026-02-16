@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from app_onefile import *  # noqa: F401,F403
 
@@ -8,7 +9,7 @@ logger = logging.getLogger("sov_app")
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, csv_path: str | Path):
         super().__init__()
         self.setWindowTitle("幾何・工程統合可視化アプリ（完全CSV対応版）")
         self.setGeometry(100, 80, 1700, 900)
@@ -17,11 +18,8 @@ class MainWindow(QMainWindow):
         self.flow: Optional[FlowModel] = None
         self.state: Optional[AssemblyState] = None
 
-        # main() で設定したCSVパスを読む（ここではハードコードしない）
-        global MODEL_ONEFILE_CSV_PATH
-        if MODEL_ONEFILE_CSV_PATH is None:
-            raise RuntimeError("MODEL_ONEFILE_CSV_PATH is not set. main() でCSVパスを設定してください。")
-        self.data_path = MODEL_ONEFILE_CSV_PATH
+        # __main__.py から渡されたCSVパスを使用
+        self.data_path = Path(csv_path).expanduser()
 
         self.steps_mask: List[bool] = []
         self.step_checkboxes: List[QCheckBox] = []
@@ -722,5 +720,4 @@ class MainWindow(QMainWindow):
         if HAS_WATCHDOG and hasattr(self, "observer"):
             self.observer.stop(); self.observer.join()
         event.accept()
-
 
