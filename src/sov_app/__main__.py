@@ -24,6 +24,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = list(argv if argv is not None else sys.argv)
 
     from PySide6.QtWidgets import QApplication
+    from sov_app.main_window import MainWindow
 
     import app_onefile
 
@@ -79,7 +80,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         window.deleteLater()
         app.processEvents()
 
-    window = app_onefile.MainWindow()
+    window = MainWindow()
     app_onefile._APP_WINDOW = window
     window.show()
 
