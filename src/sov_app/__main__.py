@@ -15,6 +15,9 @@ from typing import Sequence
 
 USAGE = "Usage: python -m sov_app <path_to_model_onefile.csv>"
 logger = logging.getLogger("sov_app")
+DEFAULT_CSV = Path(
+    r"C:\Users\tsumura-s\OneDrive - 国立研究開発法人海上・港湾・航空技術研究所\1_current\python\ブロック精度\model_onefile_buttchain_fixed.csv"
+)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -35,18 +38,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     if len(args) >= 2:
         csv_path = Path(args[1]).expanduser()
     else:
-        from PySide6.QtWidgets import QFileDialog
+        if DEFAULT_CSV.exists():
+            logger.info("Using default CSV path: %s", DEFAULT_CSV)
+            csv_path = DEFAULT_CSV
+        else:
+            from PySide6.QtWidgets import QFileDialog
 
-        selected_path, _ = QFileDialog.getOpenFileName(
-            None,
-            "Open model_onefile.csv",
-            "",
-            "CSV Files (*.csv);;All Files (*)",
-        )
-        if not selected_path:
-            logger.info("No CSV file selected. Exiting without launching the app.")
-            return 0
-        csv_path = Path(selected_path).expanduser()
+            selected_path, _ = QFileDialog.getOpenFileName(
+                None,
+                "Open model_onefile.csv",
+                "",
+                "CSV Files (*.csv);;All Files (*)",
+            )
+            if not selected_path:
+                logger.info(
+                    "Default CSV not found (%s), and no CSV file selected from dialog. Exiting without launching the app.",
+                    DEFAULT_CSV,
+                )
+                return 0
+            csv_path = Path(selected_path).expanduser()
 
     if not csv_path.exists():
         logger.error("CSV file not found: %s", csv_path)
