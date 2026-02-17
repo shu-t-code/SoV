@@ -17,7 +17,12 @@ from .core_models import (
 )
 from .env import USE_OPEN3D
 from .io_csv import csv_to_nested_dict, load_data_from_csv, nested_dict_to_csv_rows
-from .monte_carlo import MonteCarloSimulator, print_all_edge_stds_after_cutting
+from .monte_carlo import (
+    MonteCarloSimulator,
+    build_state_for_trial,
+    print_all_edge_stds_after_cutting,
+    run_pair_distance_trials,
+)
 from .process_engine import ProcessEngine
 from .util_logging import FileChangeHandler, HAS_WATCHDOG, Observer, log_env, setup_font
 from .visualize import DistanceHistogramWidget, InteractivePointSelector, MatplotlibVisualizer, Open3DVisualizer
@@ -33,6 +38,7 @@ __all__ = [
     "InteractivePointSelector",
     "MatplotlibVisualizer",
     "MonteCarloSimulator",
+    "build_state_for_trial",
     "Observer",
     "Open3DVisualizer",
     "ProcessEngine",
@@ -44,6 +50,7 @@ __all__ = [
     "log_env",
     "nested_dict_to_csv_rows",
     "print_all_edge_stds_after_cutting",
+    "run_pair_distance_trials",
     "rpy_to_rotation_matrix",
     "setup_font",
 ]

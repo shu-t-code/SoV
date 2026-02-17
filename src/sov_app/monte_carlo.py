@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List
+from typing import Callable, Dict, List
 
 import numpy as np
 import pandas as pd
@@ -12,21 +12,63 @@ from .core_models import AssemblyState, FlowModel, GeometryModel, get_world_poin
 from .io_csv import load_data_from_csv
 from .process_engine import ProcessEngine
 
+ProcessEngineFactory = Callable[[GeometryModel, FlowModel, np.random.Generator], ProcessEngine]
+
+
+def build_state_for_trial(
+    geom: GeometryModel,
+    flow: FlowModel,
+    steps_mask: List[bool],
+    trial: int,
+    seed_base: int,
+    process_engine_factory: ProcessEngineFactory = ProcessEngine,
+) -> AssemblyState:
+    rng = np.random.default_rng(seed_base + trial)
+    state = AssemblyState(geom)
+    engine = process_engine_factory(geom, flow, rng)
+    engine.apply_steps(state, steps_mask)
+    return state
+
+
+def run_pair_distance_trials(
+    geom: GeometryModel,
+    flow: FlowModel,
+    steps_mask: List[bool],
+    p1_instance: str,
+    p1_ref: str,
+    p2_instance: str,
+    p2_ref: str,
+    n_trials: int,
+    seed: int,
+    process_engine_factory: ProcessEngineFactory = ProcessEngine,
+) -> np.ndarray:
+    vals: List[float] = []
+    for trial in range(n_trials):
+        state = build_state_for_trial(geom, flow, steps_mask, trial, seed, process_engine_factory)
+        p1 = get_world_point(geom, state, p1_instance, p1_ref)
+        p2 = get_world_point(geom, state, p2_instance, p2_ref)
+        vals.append(float(np.linalg.norm(p2 - p1)))
+    return np.asarray(vals, dtype=float)
+
 
 class MonteCarloSimulator:
-    def __init__(self, geom: GeometryModel, flow: FlowModel):
+    def __init__(
+        self,
+        geom: GeometryModel,
+        flow: FlowModel,
+        process_engine_factory: ProcessEngineFactory = ProcessEngine,
+    ):
         self.geom = geom
         self.flow = flow
+        self.process_engine_factory = process_engine_factory
 
     def run(self, n_trials: int, steps_mask: List[bool], seed: int = 42) -> pd.DataFrame:
         results: List[Dict[str, float]] = []
         for trial in range(n_trials):
             rng = np.random.default_rng(seed + trial)
             state = AssemblyState(self.geom)
-            engine = ProcessEngine(self.geom, self.flow, rng)
-            for i, step in enumerate(self.flow.steps):
-                if i < len(steps_mask) and steps_mask[i]:
-                    engine.apply_step(step, state)
+            engine = self.process_engine_factory(self.geom, self.flow, rng)
+            engine.apply_steps(state, steps_mask)
             metrics = self._compute_metrics(state)
             metrics["trial"] = trial
             results.append(metrics)
@@ -77,7 +119,8 @@ def print_all_edge_stds_after_cutting(csv_path: Path, n_trials: int = 5000, seed
     for t in range(n_trials):
         rng = np.random.default_rng(seed + t)
         state = AssemblyState(geom)
-        ProcessEngine(geom, flow, rng).apply_step(cutting_step, state)
+        process_engine = ProcessEngine(geom, flow, rng)
+        process_engine.apply_step(cutting_step, state)
         for inst_id, edge_name, ep0, ep1 in edge_defs:
             p0 = get_world_point(geom, state, inst_id, f"points.{ep0}")
             p1 = get_world_point(geom, state, inst_id, f"points.{ep1}")
@@ -89,4 +132,9 @@ def print_all_edge_stds_after_cutting(csv_path: Path, n_trials: int = 5000, seed
         print(f"  {inst_id}:{edge_name:<6}  mean={float(arr.mean()):10.6f} mm   std={float(arr.std(ddof=1)):10.6f} mm")
 
 
-__all__ = ["MonteCarloSimulator", "print_all_edge_stds_after_cutting"]
+__all__ = [
+    "MonteCarloSimulator",
+    "build_state_for_trial",
+    "print_all_edge_stds_after_cutting",
+    "run_pair_distance_trials",
+]

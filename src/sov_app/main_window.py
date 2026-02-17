@@ -4,7 +4,7 @@ import json
 import logging
 import traceback
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -36,10 +36,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .core_models import AssemblyState, FlowModel, GeometryModel, Validator, get_world_point
+from .core_models import AssemblyState, FlowModel, GeometryModel, Validator
 from .env import USE_OPEN3D
 from .io_csv import load_data_from_csv, nested_dict_to_csv_rows
-from .monte_carlo import MonteCarloSimulator
+from .monte_carlo import MonteCarloSimulator, build_state_for_trial, run_pair_distance_trials
 from .process_engine import ProcessEngine
 from .util_logging import FileChangeHandler, HAS_WATCHDOG as UTIL_HAS_WATCHDOG, Observer
 from .visualize import DistanceHistogramWidget, InteractivePointSelector, MatplotlibVisualizer, Open3DVisualizer
@@ -53,11 +53,17 @@ HAS_WATCHDOG = UTIL_HAS_WATCHDOG and Observer is not None and FileChangeHandler 
 
 logger = logging.getLogger("sov_app")
 
+ProcessEngineFactory = Callable[[GeometryModel, FlowModel, np.random.Generator], ProcessEngine]
+
 
 class MainWindow(QMainWindow):
     file_change_detected = Signal()
 
-    def __init__(self, csv_path: str | Path):
+    def __init__(
+        self,
+        csv_path: str | Path,
+        process_engine_factory: ProcessEngineFactory = ProcessEngine,
+    ):
         super().__init__()
         self.setWindowTitle("幾何・工程統合可視化アプリ（完全CSV対応版）")
         self.setGeometry(100, 80, 1700, 900)
@@ -76,6 +82,8 @@ class MainWindow(QMainWindow):
 
         # Monte Carlo結果保存用
         self.mc_results: Optional[pd.DataFrame] = None
+
+        self.process_engine_factory = process_engine_factory
 
         self._setup_ui()
         self.file_change_detected.connect(self._schedule_reload_from_main_thread)
@@ -487,14 +495,15 @@ class MainWindow(QMainWindow):
     def update_steps_mask(self):
         self.steps_mask = [cb.isChecked() for cb in self.step_checkboxes]
 
+    def _build_process_engine(self, rng: np.random.Generator) -> ProcessEngine:
+        return self.process_engine_factory(self.geom, self.flow, rng)
+
     def apply_steps(self):
         if not (self.geom and self.flow): return
         self.state = AssemblyState(self.geom)
         rng = np.random.default_rng(42)
-        engine = ProcessEngine(self.geom, self.flow, rng)
-        for i, st in enumerate(self.flow.steps):
-            if i < len(self.steps_mask) and self.steps_mask[i]:
-                engine.apply_step(st, self.state)
+        engine = self._build_process_engine(rng)
+        engine.apply_steps(self.state, self.steps_mask)
 
     def update_view(self):
         """【機能1&2】偏差表示モード＋変形倍率を反映してビュー更新"""
@@ -542,7 +551,7 @@ class MainWindow(QMainWindow):
         try:
             n = self.mc_n_spin.value(); seed = self.mc_seed_spin.value()
             self.log_message(f"Monte Carlo 実行中… (N={n})", "info"); QApplication.processEvents()
-            sim = MonteCarloSimulator(self.geom, self.flow)
+            sim = MonteCarloSimulator(self.geom, self.flow, self.process_engine_factory)
             self.mc_results = sim.run(n, self.steps_mask, seed)
             lines = [f"Monte Carlo 結果 (N={n})"]
             for col in [c for c in self.mc_results.columns if c != "trial"][:6]:
@@ -580,13 +589,14 @@ class MainWindow(QMainWindow):
         """
         指定された試行番号のアセンブリ状態を再構築
         """
-        rng = np.random.default_rng(seed_base + trial)
-        state = AssemblyState(self.geom)
-        engine = ProcessEngine(self.geom, self.flow, rng)
-        for i, st in enumerate(self.flow.steps):
-            if i < len(self.steps_mask) and self.steps_mask[i]:
-                engine.apply_step(st, state)
-        return state
+        return build_state_for_trial(
+            self.geom,
+            self.flow,
+            self.steps_mask,
+            trial,
+            seed_base,
+            self.process_engine_factory,
+        )
     
     def show_worst_case(self):
         """ワーストケース（最大edge_gap_x）を表示"""
@@ -728,19 +738,18 @@ class MainWindow(QMainWindow):
             n = self.mc_n_spin.value(); seed = self.mc_seed_spin.value()
             self.log_message(f"距離分布計算中… (N={n})", "info"); QApplication.processEvents()
 
-            vals = []
-            for t in range(n):
-                rng = np.random.default_rng(seed + t)
-                state = AssemblyState(self.geom)
-                engine = ProcessEngine(self.geom, self.flow, rng)
-                for i, st in enumerate(self.flow.steps):
-                    if i < len(self.steps_mask) and self.steps_mask[i]:
-                        engine.apply_step(st, state)
-                P1 = get_world_point(self.geom, state, i1, r1)
-                P2 = get_world_point(self.geom, state, i2, r2)
-                vals.append(float(np.linalg.norm(P2 - P1)))
-
-            vals = np.asarray(vals, dtype=float)
+            vals = run_pair_distance_trials(
+                self.geom,
+                self.flow,
+                self.steps_mask,
+                i1,
+                r1,
+                i2,
+                r2,
+                n,
+                seed,
+                self.process_engine_factory,
+            )
             
             # アプリ内にヒストグラム描画
             self.distance_histogram.plot_histogram(vals, name1, name2, n)
