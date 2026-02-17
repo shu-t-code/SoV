@@ -4,7 +4,7 @@
 
 ```bash
 pip install -e .
-python -m sov_app path/to/model_onefile.csv
+python -m sov_app "path/to/model_onefile.csv"
 ```
 
 CSV パスを省略した場合はファイル選択ダイアログが開きます。
@@ -13,28 +13,28 @@ CSV パスを省略した場合はファイル選択ダイアログが開きま�
 python -m sov_app
 ```
 
+## Headless smoke path
+
+```bash
+python -m sov_app --headless "path/to/model_onefile.csv"
+```
+
+`--headless` は CSV をロードし、最小ステップ適用 + 小規模 Monte Carlo（3試行）を実行して終了します。
+
 ## Minimal smoke checks
 
 ```bash
 python -m compileall src/sov_app
-PYTHONPATH=src python -m sov_app --help
-PYTHONPATH=src python -c "from sov_app.monte_carlo import MonteCarloSimulator, build_state_for_trial, run_pair_distance_trials; print('mc import ok')"
+PYTHONPATH=src python -m sov_app --headless model_onefile.csv
+PYTHONPATH=src python -c "from sov_app.services import load_csv, apply_steps; print('services import ok')"
 ```
-
-> `--help` は専用オプションではなく、存在しないパスとして扱われます。エラーハンドリング確認用の簡易チェックです。
-
-## CSV I/O の簡易動作確認
-
-```bash
-PYTHONPATH=src python -c "from pathlib import Path; from sov_app.io_csv import load_data_from_csv; g, f = load_data_from_csv(Path('model_onefile.csv')); print(type(g), type(f))"
-```
-
 
 ## README smoke test commands
 
 ```bash
 python -m sov_app
 python -m sov_app "<csv_path>"
+python -m sov_app --headless "<csv_path>"
 # Windows
 py -m sov_app "<csv_path>"
 ```

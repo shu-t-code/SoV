@@ -6,6 +6,10 @@ older imports keep working while the package uses the src-layout modules.
 
 from __future__ import annotations
 
+import warnings
+
+warnings.warn("Deprecated compatibility module; import from sov_app.services or dedicated modules.", DeprecationWarning, stacklevel=2)
+
 from .core_models import (
     AssemblyState,
     DistributionSampler,

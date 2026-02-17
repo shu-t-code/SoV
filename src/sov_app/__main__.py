@@ -2,13 +2,23 @@
 
 from __future__ import annotations
 
+import argparse
 import logging
 import sys
 from pathlib import Path
 from typing import Sequence
 
+from .services import MonteCarloSettings, apply_steps, load_csv, run_monte_carlo
+
 USAGE = "Usage: python -m sov_app <path_to_model_onefile.csv>"
 logger = logging.getLogger("sov_app")
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="SoV application launcher")
+    parser.add_argument("csv", nargs="?", help="Path to model_onefile.csv")
+    parser.add_argument("--headless", dest="headless_csv", metavar="CSV", help="Run a headless smoke flow with the given CSV")
+    return parser
 
 
 def _pick_csv_path() -> Path | None:
@@ -25,8 +35,31 @@ def _pick_csv_path() -> Path | None:
     return Path(selected_path).expanduser()
 
 
+def _run_headless(csv_path: Path) -> int:
+    if not csv_path.exists():
+        logger.error("CSV file not found: %s", csv_path)
+        return 2
+
+    app_state = load_csv(csv_path)
+    steps_mask = [False] * len(app_state.flow.steps)
+    if steps_mask:
+        steps_mask[0] = True
+
+    apply_steps(app_state, steps_mask, seed=42)
+    results = run_monte_carlo(
+        app_state,
+        MonteCarloSettings(n_trials=3, steps_mask=steps_mask, seed=42),
+    )
+    logger.info("Headless smoke finished: rows=%s, metrics=%s", len(results), list(results.columns))
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    args = list(argv if argv is not None else sys.argv)
+    args = list(argv if argv is not None else sys.argv[1:])
+    parsed = _build_parser().parse_args(args)
+
+    if parsed.headless_csv:
+        return _run_headless(Path(parsed.headless_csv).expanduser())
 
     try:
         from PySide6.QtWidgets import QApplication
@@ -44,8 +77,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         app = QApplication(sys.argv)
         created = True
 
-    if len(args) >= 2:
-        csv_path = Path(args[1]).expanduser()
+    if parsed.csv:
+        csv_path = Path(parsed.csv).expanduser()
     else:
         picked = _pick_csv_path()
         if picked is None:
