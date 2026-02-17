@@ -4,7 +4,7 @@ import json
 import logging
 import traceback
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import List, Optional
 
 import numpy as np
 import pandas as pd
@@ -36,13 +36,26 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .core_models import AssemblyState, FlowModel, GeometryModel, Validator
+from .core_models import AssemblyState
 from .env import USE_OPEN3D
-from .io_csv import load_data_from_csv, nested_dict_to_csv_rows
-from .monte_carlo import MonteCarloSimulator, build_state_for_trial, run_pair_distance_trials
-from .process_engine import ProcessEngine
+from .services import (
+    AppState,
+    DEFAULT_PROCESS_ENGINE_FACTORY,
+    MonteCarloSettings,
+    ProcessEngineFactory,
+    VisualizerConfig,
+    apply_steps,
+    build_state_for_trial,
+    build_visualizer,
+    from_dicts,
+    load_csv,
+    run_monte_carlo,
+    run_pair_distance,
+    save_csv,
+    validate_models,
+)
 from .util_logging import FileChangeHandler, HAS_WATCHDOG as UTIL_HAS_WATCHDOG, Observer
-from .visualize import DistanceHistogramWidget, InteractivePointSelector, MatplotlibVisualizer, Open3DVisualizer
+from .visualize import DistanceHistogramWidget, InteractivePointSelector
 
 try:  # optional
     import open3d as o3d
@@ -53,8 +66,6 @@ HAS_WATCHDOG = UTIL_HAS_WATCHDOG and Observer is not None and FileChangeHandler 
 
 logger = logging.getLogger("sov_app")
 
-ProcessEngineFactory = Callable[[GeometryModel, FlowModel, np.random.Generator], ProcessEngine]
-
 
 class MainWindow(QMainWindow):
     file_change_detected = Signal()
@@ -62,14 +73,15 @@ class MainWindow(QMainWindow):
     def __init__(
         self,
         csv_path: str | Path,
-        process_engine_factory: ProcessEngineFactory = ProcessEngine,
+        process_engine_factory: ProcessEngineFactory = DEFAULT_PROCESS_ENGINE_FACTORY,
     ):
         super().__init__()
         self.setWindowTitle("幾何・工程統合可視化アプリ（完全CSV対応版）")
         self.setGeometry(100, 80, 1700, 900)
 
-        self.geom: Optional[GeometryModel] = None
-        self.flow: Optional[FlowModel] = None
+        self.app_state: Optional[AppState] = None
+        self.geom = None
+        self.flow = None
         self.state: Optional[AssemblyState] = None
 
         # __main__.py から渡されたCSVパスを使用
@@ -179,9 +191,9 @@ class MainWindow(QMainWindow):
             self.view_label = QLabel("Open3D ウィンドウで表示します（ボタン押下で更新）")
             self.view_label.setAlignment(Qt.AlignCenter)
             lay.addWidget(self.view_label)
-            self.visualizer = Open3DVisualizer()
+            self.visualizer = build_visualizer(VisualizerConfig(use_open3d=True))
         else:
-            self.visualizer = MatplotlibVisualizer()
+            self.visualizer = build_visualizer(VisualizerConfig(use_open3d=False))
             lay.addWidget(self.visualizer)
 
         return w
@@ -414,22 +426,15 @@ class MainWindow(QMainWindow):
                 raise FileNotFoundError(f"model_onefile.csv not found: {self.data_path}")
     
             # CSVから両方のデータを読み込み
-            geom_data, flow_data = load_data_from_csv(self.data_path)
-    
-            if geom_data:
-                self.geom = GeometryModel(geom_data)
-                # エディタにはJSON形式で表示
-                self.geom_editor.setPlainText(json.dumps(geom_data, indent=2, ensure_ascii=False))
-    
-            if flow_data:
-                self.flow = FlowModel(flow_data)
-                self.flow_editor.setPlainText(json.dumps(flow_data, indent=2, ensure_ascii=False))
-    
-            if self.flow:
-                self._rebuild_step_checkboxes()
-            if self.geom:
-                self.state = AssemblyState(self.geom)
-                self._rebuild_instance_combos()
+            self.app_state = load_csv(self.data_path)
+            self.geom = self.app_state.geom
+            self.flow = self.app_state.flow
+            self.geom_editor.setPlainText(json.dumps(self.geom.raw, indent=2, ensure_ascii=False))
+            self.flow_editor.setPlainText(json.dumps(self.flow.raw, indent=2, ensure_ascii=False))
+
+            self._rebuild_step_checkboxes()
+            self.state = AssemblyState(self.geom)
+            self._rebuild_instance_combos()
     
             self.update_instance_tree()
             self.update_view()
@@ -467,18 +472,8 @@ class MainWindow(QMainWindow):
             # エディタから取得したJSONデータ
             geom_data = json.loads(self.geom_editor.toPlainText())
             flow_data = json.loads(self.flow_editor.toPlainText())
-            
-            # JSON → CSV行に変換
-            geom_rows = nested_dict_to_csv_rows(geom_data, 'geometry')
-            flow_rows = nested_dict_to_csv_rows(flow_data, 'flow')
-            
-            # 両方を結合
-            all_rows = geom_rows + flow_rows
-            
-            # DataFrameに変換して保存
-            df = pd.DataFrame(all_rows)
-            df.to_csv(self.data_path, index=False)
-            
+            save_csv(from_dicts(geom_data, flow_data), self.data_path)
+
             self.log_message("model_onefile.csv 保存完了", "info")
             self.reload_all()
         except Exception as e:
@@ -495,15 +490,10 @@ class MainWindow(QMainWindow):
     def update_steps_mask(self):
         self.steps_mask = [cb.isChecked() for cb in self.step_checkboxes]
 
-    def _build_process_engine(self, rng: np.random.Generator) -> ProcessEngine:
-        return self.process_engine_factory(self.geom, self.flow, rng)
-
     def apply_steps(self):
-        if not (self.geom and self.flow): return
-        self.state = AssemblyState(self.geom)
-        rng = np.random.default_rng(42)
-        engine = self._build_process_engine(rng)
-        engine.apply_steps(self.state, self.steps_mask)
+        if not self.app_state:
+            return
+        self.state = apply_steps(self.app_state, self.steps_mask, seed=42, process_engine_factory=self.process_engine_factory)
 
     def update_view(self):
         """【機能1&2】偏差表示モード＋変形倍率を反映してビュー更新"""
@@ -534,10 +524,10 @@ class MainWindow(QMainWindow):
 
     # ---------- Validation ----------
     def run_validation(self):
-        if not (self.geom and self.flow):
+        if not self.app_state:
             self.log_message("データ未ロード", "error")
             return
-        issues = Validator.validate(self.geom, self.flow)
+        issues = validate_models(self.app_state)
         if not issues:
             self.log_message("検証OK: 問題なし", "info")
         else:
@@ -546,13 +536,20 @@ class MainWindow(QMainWindow):
 
     # ---------- Monte Carlo ----------
     def run_monte_carlo(self):
-        if not (self.geom and self.flow):
+        if not self.app_state:
             self.log_message("データ未ロード", "error"); return
         try:
             n = self.mc_n_spin.value(); seed = self.mc_seed_spin.value()
             self.log_message(f"Monte Carlo 実行中… (N={n})", "info"); QApplication.processEvents()
-            sim = MonteCarloSimulator(self.geom, self.flow, self.process_engine_factory)
-            self.mc_results = sim.run(n, self.steps_mask, seed)
+            self.mc_results = run_monte_carlo(
+                self.app_state,
+                MonteCarloSettings(
+                    n_trials=n,
+                    steps_mask=self.steps_mask,
+                    seed=seed,
+                    process_engine_factory=self.process_engine_factory,
+                ),
+            )
             lines = [f"Monte Carlo 結果 (N={n})"]
             for col in [c for c in self.mc_results.columns if c != "trial"][:6]:
                 s = self.mc_results[col]
@@ -590,8 +587,7 @@ class MainWindow(QMainWindow):
         指定された試行番号のアセンブリ状態を再構築
         """
         return build_state_for_trial(
-            self.geom,
-            self.flow,
+            self.app_state,
             self.steps_mask,
             trial,
             seed_base,
@@ -706,7 +702,7 @@ class MainWindow(QMainWindow):
 
     # ---------- 任意2点距離（両モード対応） ----------
     def run_pair_distance_mc(self):
-        if not (self.geom and self.flow):
+        if not self.app_state:
             self.log_message("データ未ロード", "error"); return
         try:
             # モードに応じて点情報を取得
@@ -738,9 +734,8 @@ class MainWindow(QMainWindow):
             n = self.mc_n_spin.value(); seed = self.mc_seed_spin.value()
             self.log_message(f"距離分布計算中… (N={n})", "info"); QApplication.processEvents()
 
-            vals = run_pair_distance_trials(
-                self.geom,
-                self.flow,
+            vals = run_pair_distance(
+                self.app_state,
                 self.steps_mask,
                 i1,
                 r1,
