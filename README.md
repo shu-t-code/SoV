@@ -27,3 +27,13 @@ PYTHONPATH=src python -m sov_app --help
 ```bash
 PYTHONPATH=src python -c "from pathlib import Path; from sov_app.io_csv import load_data_from_csv; g, f = load_data_from_csv(Path('model_onefile.csv')); print(type(g), type(f))"
 ```
+
+
+## README smoke test commands
+
+```bash
+python -m sov_app
+python -m sov_app "<csv_path>"
+# Windows
+py -m sov_app "<csv_path>"
+```
