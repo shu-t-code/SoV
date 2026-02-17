@@ -18,6 +18,7 @@ python -m sov_app
 ```bash
 python -m compileall src/sov_app
 PYTHONPATH=src python -m sov_app --help
+PYTHONPATH=src python -c "from sov_app.monte_carlo import MonteCarloSimulator, build_state_for_trial, run_pair_distance_trials; print('mc import ok')"
 ```
 
 > `--help` は専用オプションではなく、存在しないパスとして扱われます。エラーハンドリング確認用の簡易チェックです。

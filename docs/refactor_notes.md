@@ -1,42 +1,54 @@
-# Refactor dependency map
+# Refactor notes: shrinking `legacy_impl.py`
 
-## 1) `legacy_impl.py` public symbols (compatibility exports)
+## Current compatibility surface in `legacy_impl.py`
 
-- `AssemblyState`
-- `DistanceHistogramWidget`
-- `DistributionSampler`
-- `FileChangeHandler`
-- `FlowModel`
-- `GeometryModel`
-- `HAS_WATCHDOG`
-- `InteractivePointSelector`
-- `MatplotlibVisualizer`
-- `MonteCarloSimulator`
-- `Observer`
-- `Open3DVisualizer`
-- `ProcessEngine`
-- `USE_OPEN3D`
-- `Validator`
-- `csv_to_nested_dict`
-- `get_world_point`
-- `load_data_from_csv`
-- `log_env`
-- `nested_dict_to_csv_rows`
-- `print_all_edge_stds_after_cutting`
-- `rpy_to_rotation_matrix`
-- `setup_font`
+`legacy_impl.py` should stay a thin facade that only re-exports symbols from dedicated modules.
 
-## 2) Symbols imported from `legacy_impl.py` by target files
+## Move map (source of truth)
 
-- `__main__.py`: *(no direct import from `legacy_impl.py`)*
-- `main_window.py`: *(no direct import from `legacy_impl.py`)*
-- `widgets.py`: *(no direct import from `legacy_impl.py`)*
+- **`core_models.py`**
+  - `AssemblyState`
+  - `DistributionSampler`
+  - `FlowModel`
+  - `GeometryModel`
+  - `Validator`
+  - `get_world_point`
+  - `rpy_to_rotation_matrix`
 
-## 3) `main_window.py` runtime symbols and current sources
+- **`process_engine.py`**
+  - `ProcessEngine`
+  - Step-application behavior (`apply_step` and per-op handlers)
+  - Multi-step apply helper (`apply_steps`)
 
-- `core_models`: `AssemblyState`, `FlowModel`, `GeometryModel`, `Validator`, `get_world_point`.
-- `io_csv`: `load_data_from_csv`, `nested_dict_to_csv_rows`.
-- `monte_carlo`: `MonteCarloSimulator`.
-- `process_engine`: `ProcessEngine`.
-- `util_logging`: `FileChangeHandler`, `HAS_WATCHDOG`, `Observer`.
-- `visualize`: `DistanceHistogramWidget`, `InteractivePointSelector`, `MatplotlibVisualizer`, `Open3DVisualizer`.
+- **`monte_carlo.py`**
+  - `MonteCarloSimulator`
+  - Trial state reconstruction helper (`build_state_for_trial`)
+  - Pair-distance trial helper (`run_pair_distance_trials`)
+  - CLI/analysis utility (`print_all_edge_stds_after_cutting`)
+
+- **`visualize.py`**
+  - `DistanceHistogramWidget`
+  - `InteractivePointSelector`
+  - `MatplotlibVisualizer`
+  - `Open3DVisualizer`
+
+- **`util_logging.py`**
+  - `FileChangeHandler`
+  - `HAS_WATCHDOG`
+  - `Observer`
+  - `log_env`
+  - `setup_font`
+
+- **`io_csv.py`**
+  - `csv_to_nested_dict`
+  - `load_data_from_csv`
+  - `nested_dict_to_csv_rows`
+
+- **`env.py`**
+  - `USE_OPEN3D`
+
+## MainWindow dependency direction
+
+- `main_window.py` imports directly from dedicated modules (`core_models`, `process_engine`, `monte_carlo`, `visualize`, `io_csv`, `util_logging`).
+- UI code should not rely on `legacy_impl.py` for runtime behavior.
+- `legacy_impl.py` remains for backward-compatible imports only.

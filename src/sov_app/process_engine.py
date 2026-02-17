@@ -56,6 +56,12 @@ class ProcessEngine:
         elif op == "fitup_pair_chain":
             self._fitup_pair_chain(step, state)
 
+    def apply_steps(self, state: AssemblyState, steps_mask: List[bool] | None = None):
+        """Apply enabled flow steps to ``state`` in flow order."""
+        for idx, step in enumerate(self.flow.steps):
+            if steps_mask is None or (idx < len(steps_mask) and steps_mask[idx]):
+                self.apply_step(step, state)
+
     def _apply_variation(self, step: Dict[str, Any], state: AssemblyState):
         target = step.get("target", {})
         model = step.get("model", {})
