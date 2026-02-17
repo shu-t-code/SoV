@@ -8,7 +8,7 @@ from typing import List, Optional
 
 import numpy as np
 import pandas as pd
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
@@ -55,6 +55,8 @@ logger = logging.getLogger("sov_app")
 
 
 class MainWindow(QMainWindow):
+    file_change_detected = Signal()
+
     def __init__(self, csv_path: str | Path):
         super().__init__()
         self.setWindowTitle("幾何・工程統合可視化アプリ（完全CSV対応版）")
@@ -76,6 +78,7 @@ class MainWindow(QMainWindow):
         self.mc_results: Optional[pd.DataFrame] = None
 
         self._setup_ui()
+        self.file_change_detected.connect(self._schedule_reload_from_main_thread)
         self._setup_file_watcher()
         self.reload_all()
 
@@ -388,6 +391,11 @@ class MainWindow(QMainWindow):
         self.observer.start()
 
     def on_file_changed(self):
+        # watchdog callback runs on a Python worker thread; emit into Qt so
+        # QTimer is always created on the GUI thread (prevents startTimer warning).
+        self.file_change_detected.emit()
+
+    def _schedule_reload_from_main_thread(self):
         QTimer.singleShot(400, self.reload_all)
 
     # ---------- Load/Save ----------
@@ -766,4 +774,3 @@ class MainWindow(QMainWindow):
         if HAS_WATCHDOG and hasattr(self, "observer"):
             self.observer.stop(); self.observer.join()
         event.accept()
-
