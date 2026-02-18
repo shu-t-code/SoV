@@ -36,31 +36,29 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .core_models import AssemblyState
-from .env import USE_OPEN3D
 from .services import (
     AppState,
     DEFAULT_PROCESS_ENGINE_FACTORY,
     MonteCarloSettings,
     ProcessEngineFactory,
+    RenderConfig,
+    StepSelection,
     VisualizerConfig,
     apply_steps,
-    build_state_for_trial,
+    build_trial_state,
     build_visualizer,
-    from_dicts,
-    load_csv,
+    create_distance_histogram_widget,
+    create_point_selector,
+    create_project,
+    load_project,
+    render,
     run_monte_carlo,
     run_pair_distance,
-    save_csv,
+    save_project,
+    show_rendered_scene,
     validate_models,
 )
 from .util_logging import FileChangeHandler, HAS_WATCHDOG as UTIL_HAS_WATCHDOG, Observer
-from .visualize import DistanceHistogramWidget, InteractivePointSelector
-
-try:  # optional
-    import open3d as o3d
-except Exception:  # pragma: no cover - optional dependency
-    o3d = None
 
 HAS_WATCHDOG = UTIL_HAS_WATCHDOG and Observer is not None and FileChangeHandler is not None
 
@@ -82,7 +80,7 @@ class MainWindow(QMainWindow):
         self.app_state: Optional[AppState] = None
         self.geom = None
         self.flow = None
-        self.state: Optional[AssemblyState] = None
+        self.state = None
 
         # __main__.py から渡されたCSVパスを使用
         self.data_path = Path(csv_path).expanduser()
@@ -187,13 +185,13 @@ class MainWindow(QMainWindow):
         
         lay.addWidget(disp_grp)
 
-        if USE_OPEN3D:
+        self.visualizer = build_visualizer(VisualizerConfig())
+        self.uses_open3d = not hasattr(self.visualizer, "canvas")
+        if self.uses_open3d:
             self.view_label = QLabel("Open3D ウィンドウで表示します（ボタン押下で更新）")
             self.view_label.setAlignment(Qt.AlignCenter)
             lay.addWidget(self.view_label)
-            self.visualizer = build_visualizer(VisualizerConfig(use_open3d=True))
         else:
-            self.visualizer = build_visualizer(VisualizerConfig(use_open3d=False))
             lay.addWidget(self.visualizer)
 
         return w
@@ -308,7 +306,7 @@ class MainWindow(QMainWindow):
         pair_l.addWidget(btn_pair)
 
         # ヒストグラム埋め込みウィジェット
-        self.distance_histogram = DistanceHistogramWidget()
+        self.distance_histogram = create_distance_histogram_widget()
         pair_l.addWidget(self.distance_histogram)
 
         # 統計情報テキスト
@@ -354,7 +352,7 @@ class MainWindow(QMainWindow):
         
         layout = QVBoxLayout(dialog)
         
-        selector = InteractivePointSelector()
+        selector = create_point_selector()
         selector.set_geometry_and_state(
             self.geom, 
             self.state, 
@@ -426,14 +424,14 @@ class MainWindow(QMainWindow):
                 raise FileNotFoundError(f"model_onefile.csv not found: {self.data_path}")
     
             # CSVから両方のデータを読み込み
-            self.app_state = load_csv(self.data_path)
+            self.app_state = load_project(self.data_path)
             self.geom = self.app_state.geom
             self.flow = self.app_state.flow
             self.geom_editor.setPlainText(json.dumps(self.geom.raw, indent=2, ensure_ascii=False))
             self.flow_editor.setPlainText(json.dumps(self.flow.raw, indent=2, ensure_ascii=False))
 
             self._rebuild_step_checkboxes()
-            self.state = AssemblyState(self.geom)
+            self.state = apply_steps(self.app_state, StepSelection(steps_mask=self.steps_mask))
             self._rebuild_instance_combos()
     
             self.update_instance_tree()
@@ -472,7 +470,7 @@ class MainWindow(QMainWindow):
             # エディタから取得したJSONデータ
             geom_data = json.loads(self.geom_editor.toPlainText())
             flow_data = json.loads(self.flow_editor.toPlainText())
-            save_csv(from_dicts(geom_data, flow_data), self.data_path)
+            save_project(create_project(geom_data, flow_data), self.data_path)
 
             self.log_message("model_onefile.csv 保存完了", "info")
             self.reload_all()
@@ -493,7 +491,11 @@ class MainWindow(QMainWindow):
     def apply_steps(self):
         if not self.app_state:
             return
-        self.state = apply_steps(self.app_state, self.steps_mask, seed=42, process_engine_factory=self.process_engine_factory)
+        self.state = apply_steps(self.app_state, StepSelection(
+            steps_mask=self.steps_mask,
+            seed=42,
+            process_engine_factory=self.process_engine_factory,
+        ))
 
     def update_view(self):
         """【機能1&2】偏差表示モード＋変形倍率を反映してビュー更新"""
@@ -509,16 +511,20 @@ class MainWindow(QMainWindow):
             # 【機能2】変形倍率
             deform_scale = float(self.deform_scale_slider.value())
             
-            self.visualizer.build_scene(
-                self.geom, self.state, show_groups,
-                deviation_mode=deviation_mode,
-                tol_mm=tol_mm,
-                deform_scale=deform_scale
+            render(
+                self.visualizer,
+                self.app_state,
+                self.state,
+                RenderConfig(
+                    show_groups=show_groups,
+                    deviation_mode=deviation_mode,
+                    tol_mm=tol_mm,
+                    deform_scale=deform_scale,
+                ),
             )
-            
-            if USE_OPEN3D:
-                o3d.visualization.draw_geometries(self.visualizer.get_geometries(),
-                                                  window_name="Assembly View", width=900, height=640)
+
+            if self.uses_open3d:
+                show_rendered_scene(self.visualizer, title="Assembly View", width=900, height=640)
         except Exception as e:
             self.log_message(f"ビュー更新エラー: {e}\n{traceback.format_exc()}", "error")
 
@@ -582,11 +588,11 @@ class MainWindow(QMainWindow):
             self.log_message(f"保存エラー: {e}", "error")
 
     # ---------- 【機能3】ワースト/ベストケース再現 ----------
-    def build_state_for_trial(self, trial: int, seed_base: int) -> AssemblyState:
+    def build_state_for_trial(self, trial: int, seed_base: int):
         """
         指定された試行番号のアセンブリ状態を再構築
         """
-        return build_state_for_trial(
+        return build_trial_state(
             self.app_state,
             self.steps_mask,
             trial,
@@ -625,18 +631,24 @@ class MainWindow(QMainWindow):
             tol_mm = float(self.tol_edit.value())
             deform_scale = float(self.deform_scale_slider.value())
             
-            self.visualizer.build_scene(
-                self.geom, state_worst, show_groups,
-                deviation_mode=deviation_mode,
-                tol_mm=tol_mm,
-                deform_scale=deform_scale
+            render(
+                self.visualizer,
+                self.app_state,
+                state_worst,
+                RenderConfig(
+                    show_groups=show_groups,
+                    deviation_mode=deviation_mode,
+                    tol_mm=tol_mm,
+                    deform_scale=deform_scale,
+                ),
             )
-            
-            if USE_OPEN3D:
-                o3d.visualization.draw_geometries(
-                    self.visualizer.get_geometries(),
-                    window_name=f"Worst Case (trial={worst_trial}, {metric_col}={worst_value:.3f}mm)",
-                    width=900, height=640
+
+            if self.uses_open3d:
+                show_rendered_scene(
+                    self.visualizer,
+                    title=f"Worst Case (trial={worst_trial}, {metric_col}={worst_value:.3f}mm)",
+                    width=900,
+                    height=640,
                 )
             
             self.log_message(
@@ -678,18 +690,24 @@ class MainWindow(QMainWindow):
             tol_mm = float(self.tol_edit.value())
             deform_scale = float(self.deform_scale_slider.value())
             
-            self.visualizer.build_scene(
-                self.geom, state_best, show_groups,
-                deviation_mode=deviation_mode,
-                tol_mm=tol_mm,
-                deform_scale=deform_scale
+            render(
+                self.visualizer,
+                self.app_state,
+                state_best,
+                RenderConfig(
+                    show_groups=show_groups,
+                    deviation_mode=deviation_mode,
+                    tol_mm=tol_mm,
+                    deform_scale=deform_scale,
+                ),
             )
-            
-            if USE_OPEN3D:
-                o3d.visualization.draw_geometries(
-                    self.visualizer.get_geometries(),
-                    window_name=f"Best Case (trial={best_trial}, {metric_col}={best_value:.3f}mm)",
-                    width=900, height=640
+
+            if self.uses_open3d:
+                show_rendered_scene(
+                    self.visualizer,
+                    title=f"Best Case (trial={best_trial}, {metric_col}={best_value:.3f}mm)",
+                    width=900,
+                    height=640,
                 )
             
             self.log_message(

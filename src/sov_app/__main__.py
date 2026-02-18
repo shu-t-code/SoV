@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
-from .services import MonteCarloSettings, apply_steps, load_csv, run_monte_carlo
+from .smoke import run_headless_smoke
 
 USAGE = "Usage: python -m sov_app <path_to_model_onefile.csv>"
 logger = logging.getLogger("sov_app")
@@ -36,22 +36,12 @@ def _pick_csv_path() -> Path | None:
 
 
 def _run_headless(csv_path: Path) -> int:
-    if not csv_path.exists():
+    rc = run_headless_smoke(csv_path, n_trials=100, seed=42)
+    if rc == 2:
         logger.error("CSV file not found: %s", csv_path)
-        return 2
-
-    app_state = load_csv(csv_path)
-    steps_mask = [False] * len(app_state.flow.steps)
-    if steps_mask:
-        steps_mask[0] = True
-
-    apply_steps(app_state, steps_mask, seed=42)
-    results = run_monte_carlo(
-        app_state,
-        MonteCarloSettings(n_trials=3, steps_mask=steps_mask, seed=42),
-    )
-    logger.info("Headless smoke finished: rows=%s, metrics=%s", len(results), list(results.columns))
-    return 0
+    elif rc != 0:
+        logger.error("Headless smoke failed with code=%s", rc)
+    return rc
 
 
 def main(argv: Sequence[str] | None = None) -> int:
