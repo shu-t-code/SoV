@@ -1,0 +1,14 @@
+doc,path,value_json
+geometry,/units,"\"mm\""
+geometry,/prototypes/0/id,"\"beam\""
+geometry,/prototypes/0/dims/L,1000.0
+geometry,/prototypes/0/features/points/A,"[0.0, 0.0, 0.0]"
+geometry,/prototypes/0/features/points/B,"[1000.0, 0.0, 0.0]"
+geometry,/instances/0/id,"\"A1\""
+geometry,/instances/0/prototype,"\"beam\""
+geometry,/instances/0/frame/parent,"\"world\""
+geometry,/instances/0/frame/origin,"[0.0, 0.0, 0.0]"
+geometry,/instances/0/frame/rpy_deg,"[0.0, 0.0, 0.0]"
+flow,/units,"\"mm\""
+flow,/steps,"[]"
+flow,/measurements,"[]"
