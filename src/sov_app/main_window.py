@@ -41,22 +41,24 @@ from .services import (
     DEFAULT_PROCESS_ENGINE_FACTORY,
     MonteCarloSettings,
     ProcessEngineFactory,
-    RenderConfig,
     StepSelection,
-    VisualizerConfig,
     apply_steps,
     build_trial_state,
-    build_visualizer,
-    create_distance_histogram_widget,
-    create_point_selector,
     create_project,
     load_project,
-    render,
     run_monte_carlo,
     run_pair_distance,
     save_project,
-    show_rendered_scene,
     validate_models,
+)
+from .ui_services import (
+    RenderConfig,
+    VisualizerConfig,
+    build_visualizer,
+    create_distance_histogram_widget,
+    create_point_selector,
+    render,
+    show_rendered_scene,
 )
 from .util_logging import FileChangeHandler, HAS_WATCHDOG as UTIL_HAS_WATCHDOG, Observer
 
