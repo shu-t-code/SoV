@@ -43,7 +43,13 @@ def _run_headless(csv_path: Path, n_trials: int, out_dir: Path, no_open3d: bool)
 
     from .headless import run_headless_smoke
 
-    rc = run_headless_smoke(csv_path, n_trials=n_trials, seed=42, out_dir=out_dir)
+    rc = run_headless_smoke(
+        csv_path,
+        n_trials=n_trials,
+        seed=42,
+        out_dir=out_dir,
+        no_open3d=no_open3d,
+    )
     if rc == 2:
         logger.error("CSV file not found: %s", csv_path)
     elif rc != 0:

@@ -1,0 +1,27 @@
+name: Headless Smoke
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install package
+        run: pip install .
+      - name: Create minimal smoke input
+        run: |
+          mkdir -p ci_artifacts
+          printf 'doc,path,value_json\n' > ci_artifacts/model_onefile.csv
+      - name: Run headless smoke
+        run: python -m sov_app --headless ci_artifacts/model_onefile.csv --mc-n 20 --out out_headless_ci --no-open3d
+      - name: Assert expected artifacts
+        run: |
+          test -f out_headless_ci/mc_results.csv
+          test -f out_headless_ci/summary.json
