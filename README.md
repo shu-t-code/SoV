@@ -12,5 +12,6 @@ python -m sov_app --headless "path/to/model_onefile.csv" --mc-n 20 --out out_hea
 
 - The GUI command launches the main application window and loads the CSV model.
 - The `--headless` command runs a smoke flow (load + one safe step + Monte Carlo) and exits with code `0` when successful.
+- Headless output artifacts are written to `--out`: `mc_results.csv` and `summary.json`.
 - Headless options: `--mc-n` (trial count), `--out` (output directory), and `--no-open3d` (forces Open3D off for CI).
 - Open3D is optional. When installed/enabled, 3D rendering opens in an Open3D window; otherwise the app uses the Matplotlib/Qt fallback visualizer.
