@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import sys
 from pathlib import Path
 from typing import Sequence
+
+from .smoke import run_headless_smoke
 
 USAGE = "Usage: python -m sov_app <path_to_model_onefile.csv>"
 logger = logging.getLogger("sov_app")
@@ -17,9 +18,6 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="SoV application launcher")
     parser.add_argument("csv", nargs="?", help="Path to model_onefile.csv")
     parser.add_argument("--headless", dest="headless_csv", metavar="CSV", help="Run a headless smoke flow with the given CSV")
-    parser.add_argument("--mc-n", type=int, default=100, help="Monte Carlo trial count for --headless (default: 100)")
-    parser.add_argument("--out", default="out_headless", help="Output directory for headless artifacts")
-    parser.add_argument("--no-open3d", action="store_true", help="Disable Open3D in headless mode")
     return parser
 
 
@@ -37,13 +35,8 @@ def _pick_csv_path() -> Path | None:
     return Path(selected_path).expanduser()
 
 
-def _run_headless(csv_path: Path, n_trials: int, out_dir: Path, no_open3d: bool) -> int:
-    if no_open3d:
-        os.environ["SOV_USE_OPEN3D"] = "0"
-
-    from .headless import run_headless_smoke
-
-    rc = run_headless_smoke(csv_path, n_trials=n_trials, seed=42, out_dir=out_dir)
+def _run_headless(csv_path: Path) -> int:
+    rc = run_headless_smoke(csv_path, n_trials=100, seed=42)
     if rc == 2:
         logger.error("CSV file not found: %s", csv_path)
     elif rc != 0:
@@ -56,12 +49,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parsed = _build_parser().parse_args(args)
 
     if parsed.headless_csv:
-        return _run_headless(
-            Path(parsed.headless_csv).expanduser(),
-            n_trials=parsed.mc_n,
-            out_dir=Path(parsed.out).expanduser(),
-            no_open3d=parsed.no_open3d,
-        )
+        return _run_headless(Path(parsed.headless_csv).expanduser())
 
     try:
         from PySide6.QtWidgets import QApplication

@@ -12,6 +12,7 @@ from .env import USE_OPEN3D
 from .io_csv import load_data_from_csv, nested_dict_to_csv_rows
 from .monte_carlo import MonteCarloSimulator, build_state_for_trial as _build_state_for_trial, run_pair_distance_trials
 from .process_engine import ProcessEngine
+from .visualize import DistanceHistogramWidget, InteractivePointSelector, MatplotlibVisualizer, Open3DVisualizer
 
 ProcessEngineFactory = Callable[[GeometryModel, FlowModel, np.random.Generator], ProcessEngine]
 DEFAULT_PROCESS_ENGINE_FACTORY: ProcessEngineFactory = ProcessEngine
@@ -132,8 +133,6 @@ def run_pair_distance(
 
 
 def build_visualizer(config: VisualizerConfig):
-    from .visualize import MatplotlibVisualizer, Open3DVisualizer
-
     if config.use_open3d:
         return Open3DVisualizer()
     return MatplotlibVisualizer()
@@ -163,14 +162,10 @@ def show_rendered_scene(visualizer: Any, title: str = "Assembly View", width: in
 
 
 def create_distance_histogram_widget() -> DistanceHistogramWidget:
-    from .visualize import DistanceHistogramWidget
-
     return DistanceHistogramWidget()
 
 
 def create_point_selector() -> InteractivePointSelector:
-    from .visualize import InteractivePointSelector
-
     return InteractivePointSelector()
 
 
