@@ -2,17 +2,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 
-from .core_models import AssemblyState, FlowModel, GeometryModel, Validator
+from .engine.core_models import AssemblyState, FlowModel, GeometryModel, Validator
 from .env import USE_OPEN3D
-from .io_csv import load_data_from_csv, nested_dict_to_csv_rows
-from .monte_carlo import MonteCarloSimulator, build_state_for_trial as _build_state_for_trial, run_pair_distance_trials
-from .process_engine import ProcessEngine
-from .visualize import DistanceHistogramWidget, InteractivePointSelector, MatplotlibVisualizer, Open3DVisualizer
+from .engine.io_csv import load_data_from_csv, nested_dict_to_csv_rows
+from .engine.monte_carlo import MonteCarloSimulator, build_state_for_trial as _build_state_for_trial, run_pair_distance_trials
+from .engine.process_engine import ProcessEngine
+
+if TYPE_CHECKING:
+    from .ui.visualize import DistanceHistogramWidget, InteractivePointSelector
 
 ProcessEngineFactory = Callable[[GeometryModel, FlowModel, np.random.Generator], ProcessEngine]
 DEFAULT_PROCESS_ENGINE_FACTORY: ProcessEngineFactory = ProcessEngine
@@ -133,6 +135,8 @@ def run_pair_distance(
 
 
 def build_visualizer(config: VisualizerConfig):
+    from .ui.visualize import MatplotlibVisualizer, Open3DVisualizer
+
     if config.use_open3d:
         return Open3DVisualizer()
     return MatplotlibVisualizer()
@@ -161,11 +165,15 @@ def show_rendered_scene(visualizer: Any, title: str = "Assembly View", width: in
     return True
 
 
-def create_distance_histogram_widget() -> DistanceHistogramWidget:
+def create_distance_histogram_widget() -> "DistanceHistogramWidget":
+    from .ui.visualize import DistanceHistogramWidget
+
     return DistanceHistogramWidget()
 
 
-def create_point_selector() -> InteractivePointSelector:
+def create_point_selector() -> "InteractivePointSelector":
+    from .ui.visualize import InteractivePointSelector
+
     return InteractivePointSelector()
 
 
