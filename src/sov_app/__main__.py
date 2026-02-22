@@ -34,7 +34,7 @@ def _pick_csv_path() -> Path | None:
 
 
 def _run_headless(csv_path: Path) -> int:
-    from .engine.smoke import run_headless_smoke
+    from .smoke import run_headless_smoke
 
     rc = run_headless_smoke(csv_path, n_trials=100, seed=42)
     if rc == 2:
