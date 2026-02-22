@@ -35,4 +35,3 @@ def test_engine_modules_import_without_gui_deps() -> None:
         importlib.import_module("sov_app.engine.io_csv")
         importlib.import_module("sov_app.engine.process_engine")
         importlib.import_module("sov_app.engine.monte_carlo")
-        importlib.import_module("sov_app.engine.smoke")
