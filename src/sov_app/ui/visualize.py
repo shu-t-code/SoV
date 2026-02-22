@@ -39,6 +39,47 @@ def deviation_color_map(deviation: float, tol_mm: float) -> np.ndarray:
 class Open3DVisualizer:
     def __init__(self):
         self.geometries: List[Any] = []
+        self._vis = None
+        self._window_created = False
+        self._window_title = "Assembly View"
+
+    def is_available(self) -> bool:
+        return o3d is not None
+
+    def ensure_window(self, title: str = "Assembly View", width: int = 900, height: int = 640) -> bool:
+        if o3d is None:
+            return False
+        if self._window_created and self._vis is not None:
+            return True
+
+        self._vis = o3d.visualization.Visualizer()
+        self._window_created = bool(self._vis.create_window(window_name=title, width=width, height=height))
+        if not self._window_created:
+            self._vis = None
+            return False
+        self._window_title = title
+        return True
+
+    def show_scene(self, title: str = "Assembly View", width: int = 900, height: int = 640) -> bool:
+        if not self.ensure_window(title=title, width=width, height=height):
+            return False
+
+        if self._vis is None:
+            return False
+
+        self._vis.clear_geometries()
+        for geometry in self.geometries:
+            self._vis.add_geometry(geometry, reset_bounding_box=False)
+
+        self._vis.poll_events()
+        self._vis.update_renderer()
+        return True
+
+    def close_window(self) -> None:
+        if self._vis is not None:
+            self._vis.destroy_window()
+        self._vis = None
+        self._window_created = False
 
     def build_scene(self, geom: GeometryModel, state: AssemblyState, show_groups: Dict[str, bool], deviation_mode: bool = False, tol_mm: float = 5.0, deform_scale: float = 1.0):
         self.geometries = []

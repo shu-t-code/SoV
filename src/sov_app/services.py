@@ -138,7 +138,9 @@ def build_visualizer(config: VisualizerConfig):
     from .ui.visualize import MatplotlibVisualizer, Open3DVisualizer
 
     if config.use_open3d:
-        return Open3DVisualizer()
+        open3d_visualizer = Open3DVisualizer()
+        if open3d_visualizer.is_available():
+            return open3d_visualizer
     return MatplotlibVisualizer()
 
 
@@ -156,13 +158,13 @@ def render(visualizer: Any, state: AppState, assembly_state: AssemblyState, rend
 def show_rendered_scene(visualizer: Any, title: str = "Assembly View", width: int = 900, height: int = 640) -> bool:
     if not USE_OPEN3D:
         return False
+    show_scene = getattr(visualizer, "show_scene", None)
+    if not callable(show_scene):
+        return False
     try:
-        import open3d as o3d
+        return bool(show_scene(title=title, width=width, height=height))
     except Exception:
         return False
-
-    o3d.visualization.draw_geometries(visualizer.get_geometries(), window_name=title, width=width, height=height)
-    return True
 
 
 def create_distance_histogram_widget() -> "DistanceHistogramWidget":
