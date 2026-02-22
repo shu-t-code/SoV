@@ -8,8 +8,6 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
-from .smoke import run_headless_smoke
-
 USAGE = "Usage: python -m sov_app <path_to_model_onefile.csv>"
 logger = logging.getLogger("sov_app")
 
@@ -36,6 +34,8 @@ def _pick_csv_path() -> Path | None:
 
 
 def _run_headless(csv_path: Path) -> int:
+    from .engine.smoke import run_headless_smoke
+
     rc = run_headless_smoke(csv_path, n_trials=100, seed=42)
     if rc == 2:
         logger.error("CSV file not found: %s", csv_path)
@@ -53,7 +53,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         from PySide6.QtWidgets import QApplication
-        from .main_window import MainWindow
+        from .ui.main_window import MainWindow
         from .util_logging import log_env, setup_font
     except ModuleNotFoundError as exc:
         logger.error("Required dependency is missing: %s", exc.name)
