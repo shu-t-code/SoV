@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Thread
 from typing import Any, Callable, Dict, List, TYPE_CHECKING
 
 import numpy as np
@@ -161,8 +162,15 @@ def show_rendered_scene(visualizer: Any, title: str = "Assembly View", width: in
     show_scene = getattr(visualizer, "show_scene", None)
     if not callable(show_scene):
         return False
+    def _show_scene_async() -> None:
+        try:
+            show_scene(title=title, width=width, height=height)
+        except Exception:
+            return
+
     try:
-        return bool(show_scene(title=title, width=width, height=height))
+        Thread(target=_show_scene_async, daemon=True).start()
+        return True
     except Exception:
         return False
 

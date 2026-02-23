@@ -138,7 +138,7 @@ class MainWindow(QMainWindow):
         step_grp = QGroupBox("工程ステップ"); step_l = QVBoxLayout(step_grp)
         self.step_box_container = QWidget(); self.step_box_layout = QVBoxLayout(self.step_box_container)
         step_l.addWidget(self.step_box_container)
-        btn_update = QPushButton("ビュー更新"); btn_update.clicked.connect(self.update_view); step_l.addWidget(btn_update)
+        btn_update = QPushButton("ビュー更新"); btn_update.clicked.connect(self.on_update_view_clicked); step_l.addWidget(btn_update)
         lay.addWidget(step_grp)
 
         # 【機能1&2】表示オプション拡張
@@ -329,6 +329,10 @@ class MainWindow(QMainWindow):
         self.deform_scale_label.setText(f"x{scale}")
         self.update_view()
 
+    def on_update_view_clicked(self):
+        """ユーザー明示操作でのみ Open3D ウィンドウを表示する。"""
+        self.update_view(show_open3d=True)
+
     # ---------- モード切り替え ----------
     def _toggle_point_selection_mode(self):
         """選択モードの切り替え"""
@@ -497,7 +501,7 @@ class MainWindow(QMainWindow):
             process_engine_factory=self.process_engine_factory,
         ))
 
-    def update_view(self):
+    def update_view(self, show_open3d: bool = False):
         """【機能1&2】偏差表示モード＋変形倍率を反映してビュー更新"""
         if not (self.geom and self.state): return
         try:
@@ -523,7 +527,7 @@ class MainWindow(QMainWindow):
                 ),
             )
 
-            if self.uses_open3d:
+            if self.uses_open3d and show_open3d:
                 show_rendered_scene(self.visualizer, title="Assembly View", width=900, height=640)
         except Exception as e:
             self.log_message(f"ビュー更新エラー: {e}\n{traceback.format_exc()}", "error")
