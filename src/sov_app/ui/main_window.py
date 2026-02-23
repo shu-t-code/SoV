@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import subprocess
+import sys
 import traceback
 from pathlib import Path
 from typing import List, Optional
@@ -55,7 +57,7 @@ from ..services import (
     run_monte_carlo,
     run_pair_distance,
     save_project,
-    show_rendered_scene,
+    export_rendered_scene,
     validate_models,
 )
 from ..util_logging import FileChangeHandler, HAS_WATCHDOG as UTIL_HAS_WATCHDOG, Observer
@@ -330,8 +332,8 @@ class MainWindow(QMainWindow):
         self.update_view()
 
     def on_update_view_clicked(self):
-        """ユーザー明示操作でのみ Open3D ウィンドウを表示する。"""
-        self.update_view(show_open3d=True)
+        """ユーザー明示操作でビュー更新。Open3Dは別プロセス起動する。"""
+        self.update_view(open_external_viewer=True)
 
     # ---------- モード切り替え ----------
     def _toggle_point_selection_mode(self):
@@ -501,7 +503,7 @@ class MainWindow(QMainWindow):
             process_engine_factory=self.process_engine_factory,
         ))
 
-    def update_view(self, show_open3d: bool = False):
+    def update_view(self, open_external_viewer: bool = False):
         """【機能1&2】偏差表示モード＋変形倍率を反映してビュー更新"""
         if not (self.geom and self.state): return
         try:
@@ -527,10 +529,35 @@ class MainWindow(QMainWindow):
                 ),
             )
 
-            if self.uses_open3d and show_open3d:
-                show_rendered_scene(self.visualizer, title="Assembly View", width=900, height=640)
+            if open_external_viewer:
+                self._launch_open3d_viewer(title="Assembly View")
         except Exception as e:
             self.log_message(f"ビュー更新エラー: {e}\n{traceback.format_exc()}", "error")
+
+    def _launch_open3d_viewer(self, title: str = "Assembly View"):
+        """Open3D viewerを別プロセスで起動してGUIブロックを回避する。"""
+        if not self.uses_open3d:
+            self.log_message("Open3D未使用環境のため埋め込みビューを更新しました", "info")
+            return
+
+        scene_path = export_rendered_scene(self.visualizer)
+        if not scene_path:
+            self.log_message("Open3D scene exportに失敗しました。GUI表示は継続します。", "warning")
+            return
+
+        try:
+            cmd = [
+                sys.executable,
+                "-m",
+                "sov_app.tools.view_open3d",
+                str(scene_path),
+                "--title",
+                title,
+            ]
+            subprocess.Popen(cmd)
+            self.log_message(f"Open3D viewerを別プロセスで起動: {scene_path}", "info")
+        except Exception as exc:
+            self.log_message(f"Open3D viewer起動失敗: {exc}", "warning")
 
     # ---------- Validation ----------
     def run_validation(self):
@@ -647,13 +674,9 @@ class MainWindow(QMainWindow):
                 ),
             )
 
-            if self.uses_open3d:
-                show_rendered_scene(
-                    self.visualizer,
-                    title=f"Worst Case (trial={worst_trial}, {metric_col}={worst_value:.3f}mm)",
-                    width=900,
-                    height=640,
-                )
+            self._launch_open3d_viewer(
+                title=f"Worst Case (trial={worst_trial}, {metric_col}={worst_value:.3f}mm)"
+            )
             
             self.log_message(
                 f"Worst Case表示: trial={worst_trial}, {metric_col}={worst_value:.3f} mm",
@@ -706,13 +729,9 @@ class MainWindow(QMainWindow):
                 ),
             )
 
-            if self.uses_open3d:
-                show_rendered_scene(
-                    self.visualizer,
-                    title=f"Best Case (trial={best_trial}, {metric_col}={best_value:.3f}mm)",
-                    width=900,
-                    height=640,
-                )
+            self._launch_open3d_viewer(
+                title=f"Best Case (trial={best_trial}, {metric_col}={best_value:.3f}mm)"
+            )
             
             self.log_message(
                 f"Best Case表示: trial={best_trial}, {metric_col}={best_value:.3f} mm",

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import tempfile
 from pathlib import Path
-from threading import Thread
 from typing import Any, Callable, Dict, List, TYPE_CHECKING
 
 import numpy as np
@@ -156,23 +156,51 @@ def render(visualizer: Any, state: AppState, assembly_state: AssemblyState, rend
     )
 
 
-def show_rendered_scene(visualizer: Any, title: str = "Assembly View", width: int = 900, height: int = 640) -> bool:
+def export_rendered_scene(visualizer: Any, export_path: str | Path | None = None) -> Path | None:
+    """Export Open3D geometries into a temporary mesh file for external viewing."""
     if not USE_OPEN3D:
-        return False
-    show_scene = getattr(visualizer, "show_scene", None)
-    if not callable(show_scene):
-        return False
-    def _show_scene_async() -> None:
-        try:
-            show_scene(title=title, width=width, height=height)
-        except Exception:
-            return
+        return None
 
     try:
-        Thread(target=_show_scene_async, daemon=True).start()
-        return True
+        import open3d as o3d
     except Exception:
-        return False
+        return None
+
+    get_geometries = getattr(visualizer, "get_geometries", None)
+    if not callable(get_geometries):
+        return None
+
+    geometries = list(get_geometries())
+    if not geometries:
+        return None
+
+    merged_mesh = o3d.geometry.TriangleMesh()
+    has_mesh = False
+    for geometry in geometries:
+        if isinstance(geometry, o3d.geometry.TriangleMesh):
+            merged_mesh += geometry
+            has_mesh = True
+
+    if not has_mesh:
+        return None
+
+    if export_path is None:
+        fd, temp_path = tempfile.mkstemp(suffix=".ply", prefix="sov_scene_")
+        output_path = Path(temp_path)
+        try:
+            import os
+
+            os.close(fd)
+        except Exception:
+            pass
+    else:
+        output_path = Path(export_path).expanduser()
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    written = o3d.io.write_triangle_mesh(str(output_path), merged_mesh)
+    if not written:
+        return None
+    return output_path
 
 
 def create_distance_histogram_widget() -> "DistanceHistogramWidget":
@@ -222,6 +250,6 @@ __all__ = [
     "run_pair_distance",
     "save_csv",
     "save_project",
-    "show_rendered_scene",
+    "export_rendered_scene",
     "validate_models",
 ]

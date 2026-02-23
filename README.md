@@ -22,3 +22,15 @@ pytest -q tests/test_engine_purity.py tests/test_engine_imports.py
 
 - `tools/check_engine_purity.py` performs an AST-based scan of `src/sov_app/engine/` and fails if GUI/visualization imports are detected.
 - The pytest checks enforce the same rule in CI and confirm engine modules import cleanly when GUI dependencies are unavailable.
+
+## Manual check (Open3D separation)
+
+```bash
+python -m sov_app "path/to/model_onefile.csv"
+# GUI起動後に「ビュー更新」を押す
+# Open3Dを直接確認する場合
+python -m sov_app.tools.view_open3d /tmp/sov_scene_example.ply
+```
+
+- GUI起動時にOpen3Dウィンドウは自動起動しません。
+- Open3D表示は別プロセスで起動するため、GUI操作は継続できます。
