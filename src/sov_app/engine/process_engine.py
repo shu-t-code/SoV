@@ -118,9 +118,12 @@ class ProcessEngine:
             if is_cutting_step:
                 self._recompute_realized_dims_from_points(inst_id, state)
 
-            if "dim_variations" in model and not is_cutting_step:
+            dim_variations = model.get("dim_variations")
+            if dim_variations is None:
+                dim_variations = model.get("dims_variation")
+            if dim_variations and not is_cutting_step:
                 proto = self.geom.get_prototype(self.geom.get_instance(inst_id).get("prototype", ""))
-                for dim_name, variation_spec in model["dim_variations"].items():
+                for dim_name, variation_spec in dim_variations.items():
                     if dim_name in proto.get("dims", {}):
                         nominal = float(proto["dims"][dim_name])
                         state.set_realized_dim(inst_id, dim_name, nominal + self._sample(variation_spec))
