@@ -45,6 +45,26 @@ class ProcessEngine:
             return toks[1]
         raise ValueError(f"ref must be points.<name>, got: {ref}")
 
+    def _recompute_realized_dims_from_points(self, inst_id: str, state: AssemblyState):
+        try:
+            a = get_world_point(self.geom, state, inst_id, "points.A")
+            b = get_world_point(self.geom, state, inst_id, "points.B")
+            c = get_world_point(self.geom, state, inst_id, "points.C")
+            d = get_world_point(self.geom, state, inst_id, "points.D")
+        except (KeyError, ValueError, TypeError):
+            return
+
+        l_ab = float(self._world_vec_to_local(inst_id, state, b - a)[0])
+        l_dc = float(self._world_vec_to_local(inst_id, state, c - d)[0])
+        h_ad = float(self._world_vec_to_local(inst_id, state, d - a)[1])
+        h_bc = float(self._world_vec_to_local(inst_id, state, c - b)[1])
+        state.set_realized_dim(inst_id, "L_ab", l_ab)
+        state.set_realized_dim(inst_id, "L_dc", l_dc)
+        state.set_realized_dim(inst_id, "H_ad", h_ad)
+        state.set_realized_dim(inst_id, "H_bc", h_bc)
+        state.set_realized_dim(inst_id, "L", 0.5 * (l_ab + l_dc))
+        state.set_realized_dim(inst_id, "H", 0.5 * (h_ad + h_bc))
+
     def apply_step(self, step: Dict[str, Any], state: AssemblyState):
         op = step.get("op", "")
         if op == "apply_variation":
@@ -95,7 +115,10 @@ class ProcessEngine:
                 for pnm in pts:
                     state.set_point_offset(inst_id, pnm, np.array([self._sample(dist_x), self._sample(dist_y), self._sample(dist_z)], dtype=float))
 
-            if "dim_variations" in model:
+            if is_cutting_step:
+                self._recompute_realized_dims_from_points(inst_id, state)
+
+            if "dim_variations" in model and not is_cutting_step:
                 proto = self.geom.get_prototype(self.geom.get_instance(inst_id).get("prototype", ""))
                 for dim_name, variation_spec in model["dim_variations"].items():
                     if dim_name in proto.get("dims", {}):
