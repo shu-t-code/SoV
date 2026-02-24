@@ -19,6 +19,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("csv", nargs="?", help="Path to model_onefile.csv")
     parser.add_argument("--headless", dest="headless_csv", metavar="CSV", help="Run a headless smoke flow with the given CSV")
     parser.add_argument("--out", dest="out_dir", metavar="OUT_DIR", help="Output directory for headless results")
+    parser.add_argument("--dims-inst", dest="dims_inst", metavar="INST_ID", help="Instance ID used for realized-dims columns in headless output")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing headless output files")
     return parser
 
@@ -77,14 +78,14 @@ def _write_headless_outputs(results: Any, output_dir: Path, csv_path: Path, seed
     summary_file.write_text(json.dumps(summary_payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
-def _run_headless(csv_path: Path, out_dir: str | None, overwrite: bool) -> int:
+def _run_headless(csv_path: Path, out_dir: str | None, overwrite: bool, dims_inst: str | None = None) -> int:
     from .smoke import run_headless_smoke_results
 
     seed = 42
     output_dir = _resolve_headless_output_dir(csv_path, out_dir)
     print(f"Headless output dir: {output_dir}")
 
-    rc, results = run_headless_smoke_results(csv_path, n_trials=100, seed=seed)
+    rc, results = run_headless_smoke_results(csv_path, n_trials=100, seed=seed, dims_inst=dims_inst)
     if rc == 0 and results is not None:
         _write_headless_outputs(results, output_dir, csv_path, seed, overwrite)
     if rc == 2:
@@ -99,7 +100,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parsed = _build_parser().parse_args(args)
 
     if parsed.headless_csv:
-        return _run_headless(Path(parsed.headless_csv).expanduser(), parsed.out_dir, parsed.overwrite)
+        return _run_headless(Path(parsed.headless_csv).expanduser(), parsed.out_dir, parsed.overwrite, parsed.dims_inst)
 
     try:
         from PySide6.QtWidgets import QApplication
