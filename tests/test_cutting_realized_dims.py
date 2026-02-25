@@ -89,7 +89,9 @@ def test_cutting_ignores_dim_variations_and_recomputes_from_points() -> None:
                     "op": "apply_variation",
                     "target": {"union": ["plate_sel"]},
                     "model": {
-                        "no_rigid_origin_on_cutting": True,
+                        "inplane_dx": {"type": "Fixed", "value": 10.0},
+                        "inplane_dy": {"type": "Fixed", "value": -5.0},
+                        "outplane_dz": {"type": "Fixed", "value": 3.0},
                         "per_point_xy_noise": True,
                         "point_dx": {"type": "Fixed", "value": 1.0},
                         "point_dy": {"type": "Fixed", "value": 2.0},

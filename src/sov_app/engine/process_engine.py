@@ -92,25 +92,14 @@ class ProcessEngine:
             inst_ids.extend(self.flow.resolve_selector(sel_name, self.geom))
         inst_ids = list(dict.fromkeys(inst_ids))
 
-        no_rigid_origin_on_cutting = bool(model.get("no_rigid_origin_on_cutting", True))
         is_cutting_step = step_id == "10_cutting"
 
         for inst_id in inst_ids:
-            tr = state.get_transform(inst_id)
-            o = tr["origin"].copy()
-            if is_cutting_step and no_rigid_origin_on_cutting:
-                dx = dy = dz = 0.0
-            else:
-                dx = self._sample(model.get("inplane_dx", 0.0))
-                dy = self._sample(model.get("inplane_dy", 0.0))
-                dz = self._sample(model.get("outplane_dz", 0.0))
-            state.set_transform(inst_id, o + np.array([dx, dy, dz], dtype=float), tr["rpy_deg"])
-
             if bool(model.get("per_point_xy_noise", False)):
                 proto = self.geom.get_prototype(self.geom.get_instance(inst_id).get("prototype", ""))
                 pts = list(proto.get("features", {}).get("points", {}).keys())
-                dist_x = model.get("point_dx", model.get("inplane_dx", 0.0))
-                dist_y = model.get("point_dy", model.get("inplane_dy", 0.0))
+                dist_x = model.get("point_dx", 0.0)
+                dist_y = model.get("point_dy", 0.0)
                 dist_z = model.get("point_dz", 0.0)
                 for pnm in pts:
                     state.set_point_offset(inst_id, pnm, np.array([self._sample(dist_x), self._sample(dist_y), self._sample(dist_z)], dtype=float))
