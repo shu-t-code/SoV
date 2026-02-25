@@ -518,8 +518,7 @@ class ProcessEngine:
 
     def _apply_variation(self, step: Dict[str, Any], state: AssemblyState):
         """
-        位置誤差（origin）と寸法誤差に加え、
-        点ごとの誤差（per-point）をオプションで適用する。
+        寸法誤差に加え、点ごとの誤差（per-point）をオプションで適用する。
         """
         target = step.get("target", {})
         model  = step.get("model", {})
@@ -531,34 +530,18 @@ class ProcessEngine:
             inst_ids.extend(self.flow.resolve_selector(sel_name, self.geom))
         inst_ids = list(dict.fromkeys(inst_ids))
 
-        # cutting工程では origin ノイズを入れない（形状誤差だけ）
-        no_rigid_origin_on_cutting = bool(model.get("no_rigid_origin_on_cutting", True))
         is_cutting_step = (step_id == "10_cutting")
 
         for inst_id in inst_ids:
-            tr = state.get_transform(inst_id)
-            o  = tr["origin"].copy()
-
-            # (1) 板全体の剛体ズレ（origin）
-            if is_cutting_step and no_rigid_origin_on_cutting:
-                dx = dy = dz = 0.0
-            else:
-                dx = self._sample(model.get("inplane_dx", 0.0))
-                dy = self._sample(model.get("inplane_dy", 0.0))
-                dz = self._sample(model.get("outplane_dz", 0.0))
-
-            o += np.array([dx, dy, dz], dtype=float)
-            state.set_transform(inst_id, o, tr["rpy_deg"])
-
-            # (2) 点ごとの誤差（per-point offsets）
+            # (1) 点ごとの誤差（per-point offsets）
             if bool(model.get("per_point_xy_noise", False)):
                 inst = self.geom.get_instance(inst_id)
                 proto = self.geom.get_prototype(inst.get("prototype", ""))
 
                 pts = list(proto.get("features", {}).get("points", {}).keys())
 
-                dist_x = model.get("point_dx", model.get("inplane_dx", 0.0))
-                dist_y = model.get("point_dy", model.get("inplane_dy", 0.0))
+                dist_x = model.get("point_dx", 0.0)
+                dist_y = model.get("point_dy", 0.0)
                 dist_z = model.get("point_dz", 0.0)
 
                 for pnm in pts:
@@ -567,7 +550,7 @@ class ProcessEngine:
                     ddz = self._sample(dist_z)
                     state.set_point_offset(inst_id, pnm, np.array([ddx, ddy, ddz], dtype=float))
 
-            # (3) 寸法誤差（realized_dims）
+            # (2) 寸法誤差（realized_dims）
             if "dim_variations" in model:
                 inst = self.geom.get_instance(inst_id)
                 proto = self.geom.get_prototype(inst.get("prototype", ""))
