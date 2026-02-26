@@ -15,10 +15,12 @@ try:
     import matplotlib
     from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
     from matplotlib.figure import Figure
+    from mpl_toolkits.mplot3d.art3d import Line3DCollection
 except Exception:  # pragma: no cover
     matplotlib = None
     FigureCanvasQTAgg = None
     Figure = None
+    Line3DCollection = None
 
 if USE_OPEN3D:
     try:
@@ -240,16 +242,47 @@ class InteractivePointSelector(QWidget):
         self.ax.clear(); self.all_selectable_points = []
         if not self.geom or not self.state:
             self.canvas.draw(); return
+
+        all_edge_segments = []
         for inst_id in self.geom.get_instance_ids():
+            all_edge_segments.extend(self._build_wireframe_segments(inst_id))
             for ref in self.geom.get_available_refs_for_instance(inst_id):
                 try:
                     coords = get_world_point(self.geom, self.state, inst_id, ref)
                     self.all_selectable_points.append({"inst_id": inst_id, "ref": ref, "coords": coords})
                 except Exception:
                     pass
+
+        if all_edge_segments and Line3DCollection is not None:
+            wireframe = Line3DCollection(all_edge_segments, colors="gray", linewidths=0.8, alpha=0.35)
+            wireframe.set_picker(False)
+            self.ax.add_collection3d(wireframe)
+
         if self.all_selectable_points:
             self.ax.scatter([p["coords"][0] for p in self.all_selectable_points], [p["coords"][1] for p in self.all_selectable_points], [p["coords"][2] for p in self.all_selectable_points], color="red", s=30, picker=True)
+            self.ax.set_xlim(min(p["coords"][0] for p in self.all_selectable_points), max(p["coords"][0] for p in self.all_selectable_points))
+            self.ax.set_ylim(min(p["coords"][1] for p in self.all_selectable_points), max(p["coords"][1] for p in self.all_selectable_points))
+            self.ax.set_zlim(min(p["coords"][2] for p in self.all_selectable_points), max(p["coords"][2] for p in self.all_selectable_points))
         self.canvas.draw()
+
+    def _build_wireframe_segments(self, inst_id: str) -> List[List[np.ndarray]]:
+        inst = self.geom.get_instance(inst_id)
+        if not inst:
+            return []
+        proto = self.geom.get_prototype(inst.get("prototype", ""))
+        edges = proto.get("features", {}).get("edges", {})
+        segments = []
+        for edge in edges.values():
+            endpoints = edge.get("endpoints", [])
+            if len(endpoints) < 2:
+                continue
+            try:
+                p0 = get_world_point(self.geom, self.state, inst_id, f"points.{endpoints[0]}")
+                p1 = get_world_point(self.geom, self.state, inst_id, f"points.{endpoints[1]}")
+            except Exception:
+                continue
+            segments.append([p0, p1])
+        return segments
 
     def _on_pick(self, event):
         if not getattr(event, "ind", None):
