@@ -208,6 +208,8 @@ class InteractivePointSelector(QWidget):
         self.show_groups = {}
         self.selected_points = []
         self.all_selectable_points = []
+        self._all_points_artist = None
+        self._selected_points_artist = None
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("3Dビュー上の点をクリックして2点を選択してください\n（点は赤い○で表示されます）"))
         if Figure is None or FigureCanvasQTAgg is None:
@@ -254,16 +256,48 @@ class InteractivePointSelector(QWidget):
                     pass
 
         if all_edge_segments and Line3DCollection is not None:
-            wireframe = Line3DCollection(all_edge_segments, colors="gray", linewidths=0.8, alpha=0.35)
+            wireframe = Line3DCollection(all_edge_segments, colors="tab:blue", linewidths=2.8, alpha=0.9)
             wireframe.set_picker(False)
             self.ax.add_collection3d(wireframe)
 
         if self.all_selectable_points:
-            self.ax.scatter([p["coords"][0] for p in self.all_selectable_points], [p["coords"][1] for p in self.all_selectable_points], [p["coords"][2] for p in self.all_selectable_points], color="red", s=30, picker=True)
+            self._all_points_artist = self.ax.scatter(
+                [p["coords"][0] for p in self.all_selectable_points],
+                [p["coords"][1] for p in self.all_selectable_points],
+                [p["coords"][2] for p in self.all_selectable_points],
+                facecolors="red",
+                edgecolors="none",
+                s=35,
+                picker=True,
+            )
+            self._selected_points_artist = self.ax.scatter([], [], [], picker=False, zorder=10)
+            self._redraw_selected_points()
             self.ax.set_xlim(min(p["coords"][0] for p in self.all_selectable_points), max(p["coords"][0] for p in self.all_selectable_points))
             self.ax.set_ylim(min(p["coords"][1] for p in self.all_selectable_points), max(p["coords"][1] for p in self.all_selectable_points))
             self.ax.set_zlim(min(p["coords"][2] for p in self.all_selectable_points), max(p["coords"][2] for p in self.all_selectable_points))
+        else:
+            self._all_points_artist = None
+            self._selected_points_artist = None
         self.canvas.draw()
+
+    def _redraw_selected_points(self):
+        if self._selected_points_artist is None:
+            return
+        if not self.selected_points:
+            self._selected_points_artist._offsets3d = ([], [], [])
+            self._selected_points_artist.set_sizes([])
+            return
+
+        selected_coords = [np.asarray(coords, dtype=float) for _, _, coords in self.selected_points]
+        self._selected_points_artist._offsets3d = (
+            [c[0] for c in selected_coords],
+            [c[1] for c in selected_coords],
+            [c[2] for c in selected_coords],
+        )
+        self._selected_points_artist.set_facecolor("gold")
+        self._selected_points_artist.set_edgecolor("black")
+        self._selected_points_artist.set_linewidth(1.5)
+        self._selected_points_artist.set_sizes([140] * len(selected_coords))
 
     def _build_wireframe_segments(self, inst_id: str) -> List[List[np.ndarray]]:
         inst = self.geom.get_instance(inst_id)
@@ -293,6 +327,8 @@ class InteractivePointSelector(QWidget):
         if len(self.selected_points) >= 2:
             return
         self.selected_points.append((p["inst_id"], p["ref"], p["coords"]))
+        self._redraw_selected_points()
+        self.canvas.draw_idle()
         self._update_selection_labels()
 
     def _update_selection_labels(self):
