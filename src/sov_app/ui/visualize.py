@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List
 
 import numpy as np
@@ -29,6 +30,9 @@ if USE_OPEN3D:
         o3d = None
 else:
     o3d = None
+
+
+logger = logging.getLogger(__name__)
 
 
 def deviation_color_map(deviation: float, tol_mm: float) -> np.ndarray:
@@ -209,7 +213,8 @@ class InteractivePointSelector(QWidget):
         self.selected_points = []
         self.all_selectable_points = []
         self._all_points_artist = None
-        self._selected_points_artist = None
+        self._selected_point1_artist = None
+        self._selected_point2_artist = None
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("3Dビュー上の点をクリックして2点を選択してください\n（点は赤い○で表示されます）"))
         if Figure is None or FigureCanvasQTAgg is None:
@@ -260,6 +265,10 @@ class InteractivePointSelector(QWidget):
             wireframe.set_picker(False)
             self.ax.add_collection3d(wireframe)
 
+        bounds_points = [np.asarray(seg[0], dtype=float) for seg in all_edge_segments] + [
+            np.asarray(seg[1], dtype=float) for seg in all_edge_segments
+        ]
+
         if self.all_selectable_points:
             self._all_points_artist = self.ax.scatter(
                 [p["coords"][0] for p in self.all_selectable_points],
@@ -270,52 +279,94 @@ class InteractivePointSelector(QWidget):
                 s=35,
                 picker=True,
             )
-            self._selected_points_artist = self.ax.scatter([], [], [], picker=False, zorder=10)
+            self._selected_point1_artist = self.ax.scatter([], [], [], marker="o", picker=False, zorder=11)
+            self._selected_point2_artist = self.ax.scatter([], [], [], marker="^", picker=False, zorder=12)
             self._redraw_selected_points()
-            self.ax.set_xlim(min(p["coords"][0] for p in self.all_selectable_points), max(p["coords"][0] for p in self.all_selectable_points))
-            self.ax.set_ylim(min(p["coords"][1] for p in self.all_selectable_points), max(p["coords"][1] for p in self.all_selectable_points))
-            self.ax.set_zlim(min(p["coords"][2] for p in self.all_selectable_points), max(p["coords"][2] for p in self.all_selectable_points))
+            bounds_points.extend(np.asarray(p["coords"], dtype=float) for p in self.all_selectable_points)
         else:
             self._all_points_artist = None
-            self._selected_points_artist = None
+            self._selected_point1_artist = None
+            self._selected_point2_artist = None
+
+        if bounds_points:
+            bx = [pt[0] for pt in bounds_points]
+            by = [pt[1] for pt in bounds_points]
+            bz = [pt[2] for pt in bounds_points]
+            self.ax.auto_scale_xyz(bx, by, bz)
+
         self.canvas.draw()
 
     def _redraw_selected_points(self):
-        if self._selected_points_artist is None:
-            return
-        if not self.selected_points:
-            self._selected_points_artist._offsets3d = ([], [], [])
-            self._selected_points_artist.set_sizes([])
+        if self._selected_point1_artist is None or self._selected_point2_artist is None:
             return
 
-        selected_coords = [np.asarray(coords, dtype=float) for _, _, coords in self.selected_points]
-        self._selected_points_artist._offsets3d = (
-            [c[0] for c in selected_coords],
-            [c[1] for c in selected_coords],
-            [c[2] for c in selected_coords],
-        )
-        self._selected_points_artist.set_facecolor("gold")
-        self._selected_points_artist.set_edgecolor("black")
-        self._selected_points_artist.set_linewidth(1.5)
-        self._selected_points_artist.set_sizes([140] * len(selected_coords))
+        if len(self.selected_points) >= 1:
+            c1 = np.asarray(self.selected_points[0][2], dtype=float)
+            self._selected_point1_artist._offsets3d = ([c1[0]], [c1[1]], [c1[2]])
+            self._selected_point1_artist.set_facecolor("gold")
+            self._selected_point1_artist.set_edgecolor("black")
+            self._selected_point1_artist.set_linewidths([1.5])
+            self._selected_point1_artist.set_sizes([160])
+        else:
+            self._selected_point1_artist._offsets3d = ([], [], [])
+            self._selected_point1_artist.set_sizes([])
+
+        if len(self.selected_points) >= 2:
+            c2 = np.asarray(self.selected_points[1][2], dtype=float)
+            self._selected_point2_artist._offsets3d = ([c2[0]], [c2[1]], [c2[2]])
+            self._selected_point2_artist.set_facecolor("lime")
+            self._selected_point2_artist.set_edgecolor("black")
+            self._selected_point2_artist.set_linewidths([1.5])
+            self._selected_point2_artist.set_sizes([200])
+        else:
+            self._selected_point2_artist._offsets3d = ([], [], [])
+            self._selected_point2_artist.set_sizes([])
 
     def _build_wireframe_segments(self, inst_id: str) -> List[List[np.ndarray]]:
         inst = self.geom.get_instance(inst_id)
         if not inst:
             return []
         proto = self.geom.get_prototype(inst.get("prototype", ""))
-        edges = proto.get("features", {}).get("edges", {})
+        feats = proto.get("features", {})
+        edge_containers = [feats.get("edges", {})]
+        for key, value in feats.items():
+            if key == "edges":
+                continue
+            if isinstance(value, dict) and "edges" in value and isinstance(value["edges"], dict):
+                edge_containers.append(value["edges"])
+
+        total_edges = 0
+        dropped_counts = {"invalid_endpoints": 0, "resolve_failed": 0, "nan_or_inf": 0}
         segments = []
-        for edge in edges.values():
-            endpoints = edge.get("endpoints", [])
-            if len(endpoints) < 2:
-                continue
-            try:
-                p0 = get_world_point(self.geom, self.state, inst_id, f"points.{endpoints[0]}")
-                p1 = get_world_point(self.geom, self.state, inst_id, f"points.{endpoints[1]}")
-            except Exception:
-                continue
-            segments.append([p0, p1])
+        for edge_map in edge_containers:
+            for edge in edge_map.values():
+                total_edges += 1
+                endpoints = edge.get("endpoints", []) if isinstance(edge, dict) else []
+                if len(endpoints) < 2:
+                    dropped_counts["invalid_endpoints"] += 1
+                    continue
+
+                try:
+                    p0 = np.asarray(get_world_point(self.geom, self.state, inst_id, f"points.{endpoints[0]}"), dtype=float)
+                    p1 = np.asarray(get_world_point(self.geom, self.state, inst_id, f"points.{endpoints[1]}"), dtype=float)
+                except Exception:
+                    dropped_counts["resolve_failed"] += 1
+                    continue
+
+                if p0.shape != (3,) or p1.shape != (3,) or not np.isfinite(p0).all() or not np.isfinite(p1).all():
+                    dropped_counts["nan_or_inf"] += 1
+                    continue
+                segments.append([p0, p1])
+
+        dropped_total = sum(dropped_counts.values())
+        logger.debug(
+            "Wireframe segments for %s: total_edges=%d created=%d dropped=%d details=%s",
+            inst_id,
+            total_edges,
+            len(segments),
+            dropped_total,
+            dropped_counts,
+        )
         return segments
 
     def _on_pick(self, event):
