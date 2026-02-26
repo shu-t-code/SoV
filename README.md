@@ -34,3 +34,24 @@ python -m sov_app.tools.view_open3d /tmp/sov_scene_example.ply
 
 - GUI起動時にOpen3Dウィンドウは自動起動しません。
 - Open3D表示は別プロセスで起動するため、GUI操作は継続できます。
+
+## WindowsローカルCSVをGitHubへ載せる手順
+
+`python -m sov_app "C:\\...\\model_onefile_buttchain_fixed.csv"` のように実行できている場合でも、
+Codex実行環境からは通常そのWindowsローカルパスへ直接アクセスできません。
+GitHubへ載せるには、CSVをこのリポジトリ配下へ配置してコミットしてください。
+
+```bash
+# 例: リポジトリ直下で実行
+mkdir -p data
+cp "C:/Users/.../model_onefile_buttchain_fixed.csv" data/
+git add data/model_onefile_buttchain_fixed.csv
+git commit -m "Add model_onefile_buttchain_fixed.csv"
+git push
+```
+
+その後は相対パスで起動できます。
+
+```bash
+python -m sov_app "data/model_onefile_buttchain_fixed.csv"
+```
