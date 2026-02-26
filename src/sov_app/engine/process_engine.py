@@ -148,6 +148,26 @@ class ProcessEngine:
         model = step.get("model", {})
         chain = step.get("chain", [])
         constraints = step.get("constraints", {})
+        butt_fitup = model.get("butt_fitup")
+
+        if isinstance(butt_fitup, dict):
+            delta_y = self._sample(butt_fitup["delta_y"])
+            for pair in chain:
+                base = pair.get("base", {})
+                guest = pair.get("guest", {})
+                if not isinstance(base, dict) or not isinstance(guest, dict):
+                    continue
+                base_id, guest_id = base["instance"], guest["instance"]
+                base_p0, base_p1 = base.get("p0", "points.A"), base.get("p1", "points.D")
+
+                p0 = get_world_point(self.geom, state, base_id, base_p0)
+                p1 = get_world_point(self.geom, state, base_id, base_p1)
+                u = self._unit(p1 - p0)
+
+                gtr = state.get_transform(guest_id)
+                state.set_transform(guest_id, gtr["origin"] + delta_y * u, gtr["rpy_deg"])
+            return
+
         has_butt = all(k in model for k in ("dx0_logn", "dx1_logn", "dy_norm"))
         if has_butt:
             for pair in chain:
