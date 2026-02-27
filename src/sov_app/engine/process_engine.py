@@ -151,12 +151,20 @@ class ProcessEngine:
         butt_fitup = model.get("butt_fitup")
 
         if isinstance(butt_fitup, dict):
+            required_keys = ("d_nom", "g0", "L_dist", "eps_mA", "eps_mB", "eps_cA", "eps_cB", "delta_y")
+            missing_keys = [k for k in required_keys if k not in butt_fitup]
+            if missing_keys:
+                missing = ", ".join(missing_keys)
+                raise ValueError(
+                    f"butt_fitup missing required keys: {missing}; check CSV /steps/3/model/butt_fitup/..."
+                )
+
             d_nom = float(butt_fitup["d_nom"])
             g0 = float(butt_fitup["g0"])
             w0_default = 2.0 * d_nom + g0
             w0_model = float(butt_fitup.get("w0", w0_default))
             enforce_nonnegative_gap = bool(butt_fitup.get("enforce_nonnegative_gap", False))
-            delta_y = self._sample(butt_fitup.get("delta_y", 0.0))
+            delta_y = self._sample(butt_fitup["delta_y"])
             step_id = str(step.get("id", ""))
             metrics_by_step = getattr(state, "butt_fitup_metrics", None)
             if metrics_by_step is None:
