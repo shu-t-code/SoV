@@ -151,7 +151,19 @@ class ProcessEngine:
         butt_fitup = model.get("butt_fitup")
 
         if isinstance(butt_fitup, dict):
-            delta_y = self._sample(butt_fitup["delta_y"])
+            d_nom = float(butt_fitup["d_nom"])
+            g0 = float(butt_fitup["g0"])
+            w0_default = 2.0 * d_nom + g0
+            w0_model = float(butt_fitup.get("w0", w0_default))
+            enforce_nonnegative_gap = bool(butt_fitup.get("enforce_nonnegative_gap", False))
+            delta_y = self._sample(butt_fitup.get("delta_y", 0.0))
+            step_id = str(step.get("id", ""))
+            metrics_by_step = getattr(state, "butt_fitup_metrics", None)
+            if metrics_by_step is None:
+                metrics_by_step = {}
+                state.butt_fitup_metrics = metrics_by_step
+            metrics_for_step = metrics_by_step.setdefault(step_id, [])
+
             for pair in chain:
                 base = pair.get("base", {})
                 guest = pair.get("guest", {})
@@ -159,13 +171,53 @@ class ProcessEngine:
                     continue
                 base_id, guest_id = base["instance"], guest["instance"]
                 base_p0, base_p1 = base.get("p0", "points.A"), base.get("p1", "points.D")
+                guest_q0 = guest.get("q0", "points.B")
 
                 p0 = get_world_point(self.geom, state, base_id, base_p0)
                 p1 = get_world_point(self.geom, state, base_id, base_p1)
                 u = self._unit(p1 - p0)
+                n = self._get_plane_normal_world(base_id, state)
+                # u is the welding-line direction and v is the in-plane direction orthogonal to u.
+                v = self._safe_unit_from_cross(n, u, np.array([0.0, 1.0, 0.0], dtype=float))
+
+                l_fit = self._sample(butt_fitup["L_dist"])
+                em_a = self._sample(butt_fitup["eps_mA"])
+                em_b = self._sample(butt_fitup["eps_mB"])
+                w = w0_model + l_fit + (em_b - em_a)
+
+                d_a = d_nom + self._sample(butt_fitup["eps_cA"])
+                d_b = d_nom + self._sample(butt_fitup["eps_cB"])
+                g_real = w - (d_a + d_b)
+                interferes = bool(g_real < 0.0)
+                if enforce_nonnegative_gap and g_real < 0.0:
+                    w = d_a + d_b
+                    g_real = 0.0
+                    interferes = True
 
                 gtr = state.get_transform(guest_id)
                 state.set_transform(guest_id, gtr["origin"] + delta_y * u, gtr["rpy_deg"])
+
+                q0 = get_world_point(self.geom, state, guest_id, guest_q0)
+                # PR1/PR2 convention: w is interpreted as the translation amount along v.
+                q0_target = p0 + w * v
+                t = q0_target - q0
+                gtr_after_dy = state.get_transform(guest_id)
+                state.set_transform(guest_id, gtr_after_dy["origin"] + t, gtr_after_dy["rpy_deg"])
+
+                metrics_for_step.append(
+                    {
+                        "w": float(w),
+                        "w0": float(w0_model),
+                        "L": float(l_fit),
+                        "emA": float(em_a),
+                        "emB": float(em_b),
+                        "dA": float(d_a),
+                        "dB": float(d_b),
+                        "g_real": float(g_real),
+                        "interferes": interferes,
+                        "delta_y": float(delta_y),
+                    }
+                )
             return
 
         has_butt = all(k in model for k in ("dx0_logn", "dx1_logn", "dy_norm"))
