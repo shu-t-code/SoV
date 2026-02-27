@@ -159,3 +159,40 @@ def test_legacy_mode_without_butt_fitup_is_still_used() -> None:
 
     assert np.linalg.norm(state.get_point_offset("G1", "D")) > 0.0
     assert not hasattr(state, "butt_fitup_metrics")
+
+
+def test_butt_fitup_missing_required_keys_raises_value_error() -> None:
+    geom = _build_geom_two_pairs()
+    flow = FlowModel(
+        {
+            "selectors": {},
+            "steps": [
+                {
+                    "id": "fitup_step",
+                    "op": "fitup_pair_chain",
+                    "chain": [
+                        {
+                            "base": {"instance": "A1", "p0": "points.B", "p1": "points.C"},
+                            "guest": {"instance": "G1", "q0": "points.A", "q1": "points.D"},
+                        }
+                    ],
+                    "model": {
+                        "butt_fitup": {
+                            "d_nom": 73.0,
+                            "g0": 4.0,
+                            "eps_mA": {"type": "Fixed", "value": 0.0},
+                            "eps_mB": {"type": "Fixed", "value": 0.0},
+                            "eps_cA": {"type": "Fixed", "value": 0.0},
+                            "eps_cB": {"type": "Fixed", "value": 0.0},
+                            "delta_y": {"type": "Fixed", "value": 0.0},
+                        }
+                    },
+                }
+            ],
+        }
+    )
+    state = AssemblyState(geom)
+    engine = ProcessEngine(geom, flow, np.random.default_rng(0))
+
+    with pytest.raises(ValueError, match="butt_fitup missing required keys"):
+        engine.apply_steps(state)
