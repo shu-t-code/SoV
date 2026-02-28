@@ -42,16 +42,8 @@ def test_butt_fitup_new_mode_records_metrics_and_shares_delta_y() -> None:
                 {
                     "id": "fitup_step",
                     "op": "fitup_pair_chain",
-                    "chain": [
-                        {
-                            "base": {"instance": "A1", "p0": "points.B", "p1": "points.C"},
-                            "guest": {"instance": "G1", "q0": "points.A", "q1": "points.D"},
-                        },
-                        {
-                            "base": {"instance": "A2", "p0": "points.B", "p1": "points.C"},
-                            "guest": {"instance": "G2", "q0": "points.A", "q1": "points.D"},
-                        },
-                    ],
+                    "base": {"instance": "A1", "p0": "points.B", "p1": "points.C"},
+                    "guest": {"instance": "G1", "q0": "points.A", "q1": "points.D"},
                     "model": {
                         "butt_fitup": {
                             "d_nom": 73.0,
@@ -78,10 +70,9 @@ def test_butt_fitup_new_mode_records_metrics_and_shares_delta_y() -> None:
     assert state.point_offsets["G2"] == {}
 
     metrics = state.butt_fitup_metrics["fitup_step"]
-    assert len(metrics) == 2
-    assert metrics[0]["delta_y"] == metrics[1]["delta_y"]
-    assert not np.isclose(metrics[0]["w"], metrics[1]["w"])
-    assert metrics[0]["interferes"] != metrics[1]["interferes"] or not np.isclose(metrics[0]["g_real"], metrics[1]["g_real"])
+    assert len(metrics) == 1
+    assert "w" in metrics[0]
+    assert "delta_y" in metrics[0]
 
 
 def test_butt_fitup_enforce_nonnegative_gap_keeps_interference_flag() -> None:
@@ -93,12 +84,8 @@ def test_butt_fitup_enforce_nonnegative_gap_keeps_interference_flag() -> None:
                 {
                     "id": "fitup_step",
                     "op": "fitup_pair_chain",
-                    "chain": [
-                        {
-                            "base": {"instance": "A1", "p0": "points.B", "p1": "points.C"},
-                            "guest": {"instance": "G1", "q0": "points.A", "q1": "points.D"},
-                        }
-                    ],
+                    "base": {"instance": "A1", "p0": "points.B", "p1": "points.C"},
+                    "guest": {"instance": "G1", "q0": "points.A", "q1": "points.D"},
                     "model": {
                         "butt_fitup": {
                             "d_nom": 73.0,
@@ -136,12 +123,8 @@ def test_legacy_mode_without_butt_fitup_is_still_used() -> None:
                 {
                     "id": "legacy_fitup",
                     "op": "fitup_pair_chain",
-                    "chain": [
-                        {
-                            "base": {"instance": "A1", "p0": "points.B", "p1": "points.C"},
-                            "guest": {"instance": "G1", "q0": "points.A", "q1": "points.D"},
-                        }
-                    ],
+                    "base": {"instance": "A1", "p0": "points.B", "p1": "points.C"},
+                    "guest": {"instance": "G1", "q0": "points.A", "q1": "points.D"},
                     "model": {
                         "dx0_logn": {"type": "Fixed", "value": 4.0},
                         "dx1_logn": {"type": "Fixed", "value": 2.0},
@@ -170,12 +153,8 @@ def test_butt_fitup_missing_required_keys_raises_value_error() -> None:
                 {
                     "id": "fitup_step",
                     "op": "fitup_pair_chain",
-                    "chain": [
-                        {
-                            "base": {"instance": "A1", "p0": "points.B", "p1": "points.C"},
-                            "guest": {"instance": "G1", "q0": "points.A", "q1": "points.D"},
-                        }
-                    ],
+                    "base": {"instance": "A1", "p0": "points.B", "p1": "points.C"},
+                    "guest": {"instance": "G1", "q0": "points.A", "q1": "points.D"},
                     "model": {
                         "butt_fitup": {
                             "d_nom": 73.0,
@@ -195,4 +174,35 @@ def test_butt_fitup_missing_required_keys_raises_value_error() -> None:
     engine = ProcessEngine(geom, flow, np.random.default_rng(0))
 
     with pytest.raises(ValueError, match="butt_fitup missing required keys"):
+        engine.apply_steps(state)
+
+
+def test_fitup_pair_chain_rejects_legacy_chain_input() -> None:
+    geom = _build_geom_two_pairs()
+    flow = FlowModel(
+        {
+            "selectors": {},
+            "steps": [
+                {
+                    "id": "legacy_chain_step",
+                    "op": "fitup_pair_chain",
+                    "chain": [
+                        {
+                            "base": {"instance": "A1", "p0": "points.B", "p1": "points.C"},
+                            "guest": {"instance": "G1", "q0": "points.A", "q1": "points.D"},
+                        }
+                    ],
+                    "model": {
+                        "dx0_logn": {"type": "Fixed", "value": 4.0},
+                        "dx1_logn": {"type": "Fixed", "value": 2.0},
+                        "dy_norm": {"type": "Fixed", "value": 1.0},
+                    },
+                }
+            ],
+        }
+    )
+    state = AssemblyState(geom)
+    engine = ProcessEngine(geom, flow, np.random.default_rng(0))
+
+    with pytest.raises(ValueError, match="chain は廃止。base/guest に移行して下さい"):
         engine.apply_steps(state)

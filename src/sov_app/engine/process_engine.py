@@ -146,16 +146,15 @@ class ProcessEngine:
 
     def _fitup_pair_chain(self, step: Dict[str, Any], state: AssemblyState):
         model = step.get("model", {})
-        chain = step.get("chain", [])
+        chain = step.get("chain")
         if chain:
-            chain_like = chain
-        elif isinstance(step.get("base"), dict) and isinstance(step.get("guest"), dict):
-            chain_like = [{"base": step["base"], "guest": step["guest"]}]
-        else:
+            raise ValueError("chain は廃止。base/guest に移行して下さい。1 step = 1ペア（base/guest）です。")
+        if not isinstance(step.get("base"), dict) or not isinstance(step.get("guest"), dict):
             raise ValueError(
-                "fitup_pair_chain requires either /steps/N/chain/... entries or both /steps/N/base and /steps/N/guest; "
-                "e.g. /steps/3/base/instance and /steps/3/guest/instance."
+                "fitup_pair_chain requires /steps/N/base and /steps/N/guest as dict; "
+                "1 step = 1 pair (base/guest)."
             )
+        chain_like = [{"base": step["base"], "guest": step["guest"]}]
         constraints = step.get("constraints", {})
         butt_fitup = model.get("butt_fitup")
         fillet_fitup = model.get("fillet_fitup")
