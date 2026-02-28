@@ -2,7 +2,7 @@ import pytest
 
 np = pytest.importorskip("numpy")
 
-from sov_app.engine.core_models import AssemblyState, FlowModel, GeometryModel
+from sov_app.engine.core_models import AssemblyState, FlowModel, GeometryModel, get_world_point
 from sov_app.engine.process_engine import ProcessEngine
 
 
@@ -74,6 +74,60 @@ def test_butt_fitup_new_mode_records_metrics_and_shares_delta_y() -> None:
     assert "w" in metrics[0]
     assert "delta_y" in metrics[0]
 
+
+
+
+def test_butt_fitup_with_q1_uses_rigid_transform_for_two_point_alignment() -> None:
+    geom = _build_geom_two_pairs()
+    flow = FlowModel(
+        {
+            "selectors": {},
+            "steps": [
+                {
+                    "id": "fitup_step",
+                    "op": "fitup_pair_chain",
+                    "base": {"instance": "A1", "p0": "points.B", "p1": "points.C"},
+                    "guest": {"instance": "G1", "q0": "points.A", "q1": "points.D"},
+                    "model": {
+                        "butt_fitup": {
+                            "d_nom": 10.0,
+                            "g0": 0.0,
+                            "w0": 0.0,
+                            "L_dist": {"type": "Fixed", "value": 0.0},
+                            "eps_mA": {"type": "Fixed", "value": 0.0},
+                            "eps_mB": {"type": "Fixed", "value": 0.0},
+                            "eps_cA": {"type": "Fixed", "value": 0.0},
+                            "eps_cB": {"type": "Fixed", "value": 0.0},
+                            "delta_y": {"type": "Fixed", "value": 0.0},
+                        }
+                    },
+                }
+            ],
+        }
+    )
+    state = AssemblyState(geom)
+    engine = ProcessEngine(geom, flow, np.random.default_rng(0))
+
+    # pair0: w=0, pair1: w=0 + (emB-emA)=10
+    dist_seq = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10.0, 0.0, 0.0, 0.0]
+    engine._sample = lambda spec: dist_seq.pop(0)
+
+    engine.apply_steps(state)
+
+    p0 = get_world_point(geom, state, "A1", "points.B")
+    p1 = get_world_point(geom, state, "A1", "points.C")
+    v = np.array([-1.0, 0.0, 0.0], dtype=float)
+
+    metric = state.butt_fitup_metrics["fitup_step"][0]
+    q0_target = p0 + metric["w_0"] * v
+    q1_target = p1 + metric["w_1"] * v
+
+    q0 = get_world_point(geom, state, "G1", "points.A")
+    q1 = get_world_point(geom, state, "G1", "points.D")
+
+    assert np.allclose(q0, q0_target, atol=1e-6)
+    assert np.allclose(q1, q1_target, atol=1e-6)
+    assert state.point_offsets["G1"] == {}
 
 def test_butt_fitup_enforce_nonnegative_gap_keeps_interference_flag() -> None:
     geom = _build_geom_two_pairs()
