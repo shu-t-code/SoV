@@ -6,7 +6,15 @@ from typing import Any, Dict, List
 
 import numpy as np
 
-from .core_models import AssemblyState, DistributionSampler, FlowModel, GeometryModel, get_world_point, rpy_to_rotation_matrix
+from .core_models import (
+    AssemblyState,
+    DistributionSampler,
+    FlowModel,
+    GeometryModel,
+    get_world_point,
+    rotation_matrix_to_rpy_deg,
+    rpy_to_rotation_matrix,
+)
 
 
 class ProcessEngine:
@@ -38,6 +46,15 @@ class ProcessEngine:
     def _world_vec_to_local(self, inst_id: str, state: AssemblyState, vec_world: np.ndarray) -> np.ndarray:
         tr = state.get_transform(inst_id)
         return rpy_to_rotation_matrix(*tr["rpy_deg"]).T @ np.array(vec_world, dtype=float)
+
+    def _rotation_matrix_from_axis_angle(self, axis: np.ndarray, theta: float) -> np.ndarray:
+        axis_unit = self._unit(np.array(axis, dtype=float))
+        if float(np.linalg.norm(axis_unit)) < 1e-12 or abs(theta) < 1e-12:
+            return np.eye(3, dtype=float)
+        ax, ay, az = axis_unit
+        skew = np.array([[0.0, -az, ay], [az, 0.0, -ax], [-ay, ax, 0.0]], dtype=float)
+        outer = np.outer(axis_unit, axis_unit)
+        return np.eye(3, dtype=float) * np.cos(theta) + (1.0 - np.cos(theta)) * outer + np.sin(theta) * skew
 
     def _parse_point_name(self, ref: str) -> str:
         toks = str(ref).split(".")
@@ -240,12 +257,27 @@ class ProcessEngine:
                 state.set_transform(guest_id, gtr_after_align["origin"] + t, gtr_after_align["rpy_deg"])
 
                 if guest_q1 and pair1 is not None:
-                    q1 = get_world_point(self.geom, state, guest_id, guest_q1)
                     q1_target = p1 + pair1["w"] * v
-                    delta1_world = q1_target - q1
-                    delta1_world = float(np.dot(delta1_world, v)) * v
-                    delta1_local = self._world_vec_to_local(guest_id, state, delta1_world)
-                    state.add_point_offset(guest_id, self._parse_point_name(guest_q1), delta1_local)
+                    gtr_aligned = state.get_transform(guest_id)
+                    origin_old = np.array(gtr_aligned["origin"], dtype=float)
+                    rpy_old = gtr_aligned["rpy_deg"]
+                    r_old = rpy_to_rotation_matrix(*rpy_old)
+                    q0_local = r_old.T @ (q0_target - origin_old)
+
+                    q1 = get_world_point(self.geom, state, guest_id, guest_q1)
+                    a = q1 - q0_target
+                    b = q1_target - q0_target
+                    a_proj = a - float(np.dot(a, n)) * n
+                    b_proj = b - float(np.dot(b, n)) * n
+                    a_norm = float(np.linalg.norm(a_proj))
+                    b_norm = float(np.linalg.norm(b_proj))
+                    if a_norm > 1e-12 and b_norm > 1e-12:
+                        theta = float(np.arctan2(np.dot(n, np.cross(a_proj, b_proj)), np.dot(a_proj, b_proj)))
+                        r_delta = self._rotation_matrix_from_axis_angle(n, theta)
+                        r_new = r_delta @ r_old
+                        origin_new = q0_target - r_new @ q0_local
+                        rpy_new = rotation_matrix_to_rpy_deg(r_new)
+                        state.set_transform(guest_id, origin_new, rpy_new)
 
                 metric_entry: Dict[str, Any] = {
                     "w": pair0["w"],

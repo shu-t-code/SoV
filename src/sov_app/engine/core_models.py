@@ -15,6 +15,26 @@ def rpy_to_rotation_matrix(roll: float, pitch: float, yaw: float) -> np.ndarray:
     return rz @ ry @ rx
 
 
+def rotation_matrix_to_rpy_deg(rotation: np.ndarray) -> List[float]:
+    """Inverse of :func:`rpy_to_rotation_matrix` for Rz @ Ry @ Rx convention."""
+    r = np.array(rotation, dtype=float)
+    sin_pitch = float(np.clip(-r[2, 0], -1.0, 1.0))
+    pitch = float(np.arcsin(sin_pitch))
+    cos_pitch = float(np.cos(pitch))
+
+    if abs(cos_pitch) > 1e-10:
+        roll = float(np.arctan2(r[2, 1], r[2, 2]))
+        yaw = float(np.arctan2(r[1, 0], r[0, 0]))
+    else:
+        roll = 0.0
+        if sin_pitch >= 0.0:
+            yaw = float(np.arctan2(r[0, 1], r[1, 1]))
+        else:
+            yaw = float(np.arctan2(-r[0, 1], r[1, 1]))
+
+    return np.rad2deg([roll, pitch, yaw]).tolist()
+
+
 class DistributionSampler:
     @staticmethod
     def sample(dist_def: Any, rng: np.random.Generator, registry: Optional[Dict[str, Any]] = None) -> float:
@@ -272,5 +292,6 @@ __all__ = [
     "GeometryModel",
     "Validator",
     "get_world_point",
+    "rotation_matrix_to_rpy_deg",
     "rpy_to_rotation_matrix",
 ]
