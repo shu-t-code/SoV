@@ -57,6 +57,7 @@ from ..services import (
     run_monte_carlo,
     run_pair_distance,
     save_project,
+    summarize_butt_fitup_metrics,
     export_rendered_scene,
     validate_models,
 )
@@ -592,6 +593,44 @@ class MainWindow(QMainWindow):
                 s = self.mc_results[col]
                 lines.append(f"- {col}: mean={s.mean():.3f}, std={s.std():.3f}, 95%CI=[{s.quantile(0.025):.3f}, {s.quantile(0.975):.3f}]")
             self.mc_result_text.setPlainText("\n".join(lines))
+
+            trial_states = [
+                build_trial_state(
+                    self.app_state,
+                    self.steps_mask,
+                    trial,
+                    seed,
+                    self.process_engine_factory,
+                )
+                for trial in range(n)
+            ]
+            butt_fitup_summary = summarize_butt_fitup_metrics(trial_states)
+            if butt_fitup_summary:
+                self.log_message("[butt_fitup clip summary]", "info")
+                for step_id in sorted(butt_fitup_summary.keys()):
+                    step_summary = butt_fitup_summary[step_id]
+                    pair0 = step_summary["pair0"]
+                    pair0_rate = (100.0 * pair0["clipped"] / pair0["n"]) if pair0["n"] else 0.0
+                    pair0_interf_rate = (100.0 * pair0["interferes"] / pair0["n"]) if pair0["n"] else 0.0
+                    self.log_message(
+                        (
+                            f"step={step_id}: pair0 clipped {pair0['clipped']}/{pair0['n']} ({pair0_rate:.1f}%), "
+                            f"interferes {pair0['interferes']}/{pair0['n']} ({pair0_interf_rate:.1f}%)"
+                        ),
+                        "info",
+                    )
+
+                    pair1 = step_summary["pair1"]
+                    if pair1 is not None:
+                        pair1_rate = (100.0 * pair1["clipped"] / pair1["n"]) if pair1["n"] else 0.0
+                        pair1_interf_rate = (100.0 * pair1["interferes"] / pair1["n"]) if pair1["n"] else 0.0
+                        self.log_message(
+                            (
+                                f"                  pair1 clipped {pair1['clipped']}/{pair1['n']} ({pair1_rate:.1f}%), "
+                                f"interferes {pair1['interferes']}/{pair1['n']} ({pair1_interf_rate:.1f}%)"
+                            ),
+                            "info",
+                        )
             self.log_message("Monte Carlo 完了", "info")
         except Exception as e:
             self.log_message(f"Monte Carlo エラー: {e}\n{traceback.format_exc()}", "error")

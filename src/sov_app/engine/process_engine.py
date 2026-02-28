@@ -192,10 +192,12 @@ class ProcessEngine:
                 d_b = d_nom + self._sample(butt_fitup["eps_cB"])
                 g_real = w - (d_a + d_b)
                 interferes = bool(g_real < 0.0)
+                clipped = False
                 if enforce_nonnegative_gap and g_real < 0.0:
                     w = d_a + d_b
                     g_real = 0.0
                     interferes = True
+                    clipped = True
                 return {
                     "w": float(w),
                     "L": float(l_fit),
@@ -205,6 +207,7 @@ class ProcessEngine:
                     "dB": float(d_b),
                     "g_real": float(g_real),
                     "interferes": interferes,
+                    "clipped": clipped,
                 }
 
             for pair in chain_like:
@@ -266,6 +269,7 @@ class ProcessEngine:
                     "dB_0": pair0["dB"],
                     "g_real_0": pair0["g_real"],
                     "interferes_0": pair0["interferes"],
+                    "clipped_0": pair0["clipped"],
                     "w_1": None,
                     "L_1": None,
                     "emA_1": None,
@@ -274,6 +278,7 @@ class ProcessEngine:
                     "dB_1": None,
                     "g_real_1": None,
                     "interferes_1": None,
+                    "clipped_1": None,
                 }
                 if pair1 is not None:
                     metric_entry.update(
@@ -286,6 +291,7 @@ class ProcessEngine:
                             "dB_1": pair1["dB"],
                             "g_real_1": pair1["g_real"],
                             "interferes_1": pair1["interferes"],
+                            "clipped_1": pair1["clipped"],
                         }
                     )
                 metrics_for_step.append(metric_entry)
