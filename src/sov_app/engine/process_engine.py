@@ -147,6 +147,14 @@ class ProcessEngine:
     def _fitup_pair_chain(self, step: Dict[str, Any], state: AssemblyState):
         model = step.get("model", {})
         chain = step.get("chain", [])
+        if chain:
+            chain_like = chain
+        elif isinstance(step.get("base"), dict) and isinstance(step.get("guest"), dict):
+            chain_like = [{"base": step["base"], "guest": step["guest"]}]
+        else:
+            raise ValueError(
+                "fitup_pair_chain requires either /steps/N/chain/... entries or both /steps/N/base and /steps/N/guest."
+            )
         constraints = step.get("constraints", {})
         butt_fitup = model.get("butt_fitup")
 
@@ -198,7 +206,7 @@ class ProcessEngine:
                     "interferes": interferes,
                 }
 
-            for pair in chain:
+            for pair in chain_like:
                 base = pair.get("base", {})
                 guest = pair.get("guest", {})
                 if not isinstance(base, dict) or not isinstance(guest, dict):
@@ -284,7 +292,7 @@ class ProcessEngine:
 
         has_butt = all(k in model for k in ("dx0_logn", "dx1_logn", "dy_norm"))
         if has_butt:
-            for pair in chain:
+            for pair in chain_like:
                 base = pair.get("base", {})
                 guest = pair.get("guest", {})
                 if not isinstance(base, dict) or not isinstance(guest, dict):
@@ -314,9 +322,25 @@ class ProcessEngine:
                 state.add_point_offset(guest_id, self._parse_point_name(guest_q1), delta_local)
             return
 
-        for pair in chain:
-            base_id = pair["base"][0]
-            guest_id = pair["guest"][0]
+        for pair in chain_like:
+            base = pair.get("base") if isinstance(pair, dict) else None
+            guest = pair.get("guest") if isinstance(pair, dict) else None
+            if isinstance(base, dict):
+                base_id = base.get("instance")
+            elif isinstance(base, list) and base:
+                base_id = base[0]
+            else:
+                base_id = None
+
+            if isinstance(guest, dict):
+                guest_id = guest.get("instance")
+            elif isinstance(guest, list) and guest:
+                guest_id = guest[0]
+            else:
+                guest_id = None
+
+            if not base_id or not guest_id:
+                continue
             base_tr = state.get_transform(base_id)
             base_dims = state.get_realized_dims(base_id)
             proto = self.geom.get_prototype(self.geom.get_instance(base_id)["prototype"])
