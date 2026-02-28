@@ -171,23 +171,9 @@ class ProcessEngine:
                 metrics_by_step = {}
                 state.butt_fitup_metrics = metrics_by_step
             metrics_for_step = metrics_by_step.setdefault(step_id, [])
+            delta_y_applied_guests = set()
 
-            for pair in chain:
-                base = pair.get("base", {})
-                guest = pair.get("guest", {})
-                if not isinstance(base, dict) or not isinstance(guest, dict):
-                    continue
-                base_id, guest_id = base["instance"], guest["instance"]
-                base_p0, base_p1 = base.get("p0", "points.A"), base.get("p1", "points.D")
-                guest_q0 = guest.get("q0", "points.B")
-
-                p0 = get_world_point(self.geom, state, base_id, base_p0)
-                p1 = get_world_point(self.geom, state, base_id, base_p1)
-                u = self._unit(p1 - p0)
-                n = self._get_plane_normal_world(base_id, state)
-                # u is the welding-line direction and v is the in-plane direction orthogonal to u.
-                v = self._safe_unit_from_cross(n, u, np.array([0.0, 1.0, 0.0], dtype=float))
-
+            def _sample_pair_fitup() -> Dict[str, Any]:
                 l_fit = self._sample(butt_fitup["L_dist"])
                 em_a = self._sample(butt_fitup["eps_mA"])
                 em_b = self._sample(butt_fitup["eps_mB"])
@@ -201,31 +187,99 @@ class ProcessEngine:
                     w = d_a + d_b
                     g_real = 0.0
                     interferes = True
+                return {
+                    "w": float(w),
+                    "L": float(l_fit),
+                    "emA": float(em_a),
+                    "emB": float(em_b),
+                    "dA": float(d_a),
+                    "dB": float(d_b),
+                    "g_real": float(g_real),
+                    "interferes": interferes,
+                }
 
-                gtr = state.get_transform(guest_id)
-                state.set_transform(guest_id, gtr["origin"] + delta_y * u, gtr["rpy_deg"])
+            for pair in chain:
+                base = pair.get("base", {})
+                guest = pair.get("guest", {})
+                if not isinstance(base, dict) or not isinstance(guest, dict):
+                    continue
+                base_id, guest_id = base["instance"], guest["instance"]
+                base_p0, base_p1 = base.get("p0", "points.A"), base.get("p1", "points.D")
+                guest_q0 = guest.get("q0", "points.B")
+                guest_q1 = guest.get("q1")
+
+                p0 = get_world_point(self.geom, state, base_id, base_p0)
+                p1 = get_world_point(self.geom, state, base_id, base_p1)
+                u = self._unit(p1 - p0)
+                n = self._get_plane_normal_world(base_id, state)
+                # u is the welding-line direction and v is the in-plane direction orthogonal to u.
+                v = self._safe_unit_from_cross(n, u, np.array([0.0, 1.0, 0.0], dtype=float))
+
+                pair0 = _sample_pair_fitup()
+                pair1 = _sample_pair_fitup() if guest_q1 else None
+
+                if guest_id not in delta_y_applied_guests:
+                    gtr = state.get_transform(guest_id)
+                    state.set_transform(guest_id, gtr["origin"] + delta_y * u, gtr["rpy_deg"])
+                    delta_y_applied_guests.add(guest_id)
 
                 q0 = get_world_point(self.geom, state, guest_id, guest_q0)
                 # PR1/PR2 convention: w is interpreted as the translation amount along v.
-                q0_target = p0 + w * v
+                q0_target = p0 + pair0["w"] * v
                 t = q0_target - q0
-                gtr_after_dy = state.get_transform(guest_id)
-                state.set_transform(guest_id, gtr_after_dy["origin"] + t, gtr_after_dy["rpy_deg"])
+                gtr_after_align = state.get_transform(guest_id)
+                state.set_transform(guest_id, gtr_after_align["origin"] + t, gtr_after_align["rpy_deg"])
 
-                metrics_for_step.append(
-                    {
-                        "w": float(w),
-                        "w0": float(w0_model),
-                        "L": float(l_fit),
-                        "emA": float(em_a),
-                        "emB": float(em_b),
-                        "dA": float(d_a),
-                        "dB": float(d_b),
-                        "g_real": float(g_real),
-                        "interferes": interferes,
-                        "delta_y": float(delta_y),
-                    }
-                )
+                if guest_q1 and pair1 is not None:
+                    q1 = get_world_point(self.geom, state, guest_id, guest_q1)
+                    q1_target = p1 + pair1["w"] * v
+                    delta1_world = q1_target - q1
+                    delta1_world = float(np.dot(delta1_world, v)) * v
+                    delta1_local = self._world_vec_to_local(guest_id, state, delta1_world)
+                    state.add_point_offset(guest_id, self._parse_point_name(guest_q1), delta1_local)
+
+                metric_entry: Dict[str, Any] = {
+                    "w": pair0["w"],
+                    "w0": float(w0_model),
+                    "L": pair0["L"],
+                    "emA": pair0["emA"],
+                    "emB": pair0["emB"],
+                    "dA": pair0["dA"],
+                    "dB": pair0["dB"],
+                    "g_real": pair0["g_real"],
+                    "interferes": pair0["interferes"],
+                    "delta_y": float(delta_y),
+                    "w_0": pair0["w"],
+                    "L_0": pair0["L"],
+                    "emA_0": pair0["emA"],
+                    "emB_0": pair0["emB"],
+                    "dA_0": pair0["dA"],
+                    "dB_0": pair0["dB"],
+                    "g_real_0": pair0["g_real"],
+                    "interferes_0": pair0["interferes"],
+                    "w_1": None,
+                    "L_1": None,
+                    "emA_1": None,
+                    "emB_1": None,
+                    "dA_1": None,
+                    "dB_1": None,
+                    "g_real_1": None,
+                    "interferes_1": None,
+                }
+                if pair1 is not None:
+                    metric_entry.update(
+                        {
+                            "w_1": pair1["w"],
+                            "L_1": pair1["L"],
+                            "emA_1": pair1["emA"],
+                            "emB_1": pair1["emB"],
+                            "dA_1": pair1["dA"],
+                            "dB_1": pair1["dB"],
+                            "g_real_1": pair1["g_real"],
+                            "interferes_1": pair1["interferes"],
+                        }
+                    )
+                metrics_for_step.append(metric_entry)
             return
 
         has_butt = all(k in model for k in ("dx0_logn", "dx1_logn", "dy_norm"))
