@@ -4,6 +4,7 @@ np = pytest.importorskip("numpy")
 
 from sov_app.engine.core_models import AssemblyState, FlowModel, GeometryModel, get_world_point
 from sov_app.engine.process_engine import ProcessEngine
+from sov_app.services import summarize_butt_fitup_metrics
 
 
 def _build_geom_two_pairs() -> GeometryModel:
@@ -166,6 +167,33 @@ def test_butt_fitup_enforce_nonnegative_gap_keeps_interference_flag() -> None:
     metric = state.butt_fitup_metrics["fitup_step"][0]
     assert metric["g_real"] == 0.0
     assert metric["interferes"] is True
+    assert metric["clipped_0"] is True
+    assert metric["clipped_1"] is True
+
+
+def test_summarize_butt_fitup_metrics_counts_clipped_and_interferes() -> None:
+    states = [
+        {
+            "butt_fitup_metrics": {
+                "fitup_step": [
+                    {"interferes_0": True, "clipped_0": True, "interferes_1": True, "clipped_1": False}
+                ]
+            }
+        },
+        {
+            "butt_fitup_metrics": {
+                "fitup_step": [
+                    {"interferes_0": False, "clipped_0": False, "interferes_1": None, "clipped_1": None}
+                ]
+            }
+        },
+    ]
+
+    summary = summarize_butt_fitup_metrics(states)
+
+    assert summary["fitup_step"]["n"] == 2
+    assert summary["fitup_step"]["pair0"] == {"n": 2, "interferes": 1, "clipped": 1}
+    assert summary["fitup_step"]["pair1"] == {"n": 1, "interferes": 1, "clipped": 0}
 
 
 def test_legacy_mode_without_butt_fitup_is_still_used() -> None:

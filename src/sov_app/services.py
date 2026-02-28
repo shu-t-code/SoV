@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import tempfile
 from pathlib import Path
-from typing import Any, Callable, Dict, List, TYPE_CHECKING
+from typing import Any, Callable, Dict, Iterable, List, TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -91,6 +91,64 @@ def apply_steps(state: AppState, selection: StepSelection | List[bool], seed: in
 def run_monte_carlo(state: AppState, mc_config: MonteCarloSettings) -> MCResults:
     sim = MonteCarloSimulator(state.geom, state.flow, mc_config.process_engine_factory)
     return sim.run(mc_config.n_trials, mc_config.steps_mask, mc_config.seed)
+
+
+def summarize_butt_fitup_metrics(states: Iterable[Any]) -> Dict[str, Dict[str, Any]]:
+    """Aggregate butt_fitup metrics from Monte Carlo trial states.
+
+    Parameters
+    ----------
+    states:
+        Iterable of trial states. Each item is expected to expose a
+        ``butt_fitup_metrics`` attribute (or key) whose shape is
+        ``{step_id: [metrics_entry, ...]}``.
+    """
+
+    summary: Dict[str, Dict[str, Any]] = {}
+
+    for state in states:
+        if isinstance(state, dict):
+            metrics_by_step = state.get("butt_fitup_metrics")
+        else:
+            metrics_by_step = getattr(state, "butt_fitup_metrics", None)
+        if not isinstance(metrics_by_step, dict):
+            continue
+
+        for step_id, entries in metrics_by_step.items():
+            if not isinstance(entries, list):
+                continue
+            step_summary = summary.setdefault(
+                str(step_id),
+                {
+                    "n": 0,
+                    "pair0": {"n": 0, "interferes": 0, "clipped": 0},
+                    "pair1": {"n": 0, "interferes": 0, "clipped": 0},
+                },
+            )
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                step_summary["n"] += 1
+
+                step_summary["pair0"]["n"] += 1
+                if entry.get("interferes_0") is True:
+                    step_summary["pair0"]["interferes"] += 1
+                if entry.get("clipped_0") is True:
+                    step_summary["pair0"]["clipped"] += 1
+
+                if entry.get("interferes_1") is None and entry.get("clipped_1") is None:
+                    continue
+                step_summary["pair1"]["n"] += 1
+                if entry.get("interferes_1") is True:
+                    step_summary["pair1"]["interferes"] += 1
+                if entry.get("clipped_1") is True:
+                    step_summary["pair1"]["clipped"] += 1
+
+    for step_summary in summary.values():
+        if step_summary["pair1"]["n"] == 0:
+            step_summary["pair1"] = None
+
+    return summary
 
 
 def build_trial_state(
@@ -250,6 +308,7 @@ __all__ = [
     "run_pair_distance",
     "save_csv",
     "save_project",
+    "summarize_butt_fitup_metrics",
     "export_rendered_scene",
     "validate_models",
 ]
