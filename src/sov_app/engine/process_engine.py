@@ -137,6 +137,7 @@ class ProcessEngine:
     def _fitup_array_attach(self, step: Dict[str, Any], state: AssemblyState):
         base_info = step.get("base", {})
         guests_info = step.get("guests", {})
+        model = step.get("model", {})
         constraints = step.get("constraints", {})
         base_inst_id = base_info["instance"]
         guest_ids = self.flow.resolve_selector(guests_info["selector"], self.geom)
@@ -149,6 +150,66 @@ class ProcessEngine:
             dy = self._sample(constraints["inplane_y"].get("dist")) if "inplane_y" in constraints and "dist" in constraints["inplane_y"] else 0.0
             new_origin = base_tr["origin"] + np.array([start_offset + i * pitch + gap, dy, 0.0], dtype=float)
             state.set_transform(gid, new_origin, list(constraints.get("set_rpy_deg", [0.0, 0.0, 0.0])))
+
+        fillet_fitup = model.get("fillet_fitup")
+        if not isinstance(fillet_fitup, dict):
+            return
+
+        required_keys = ("delta_mA", "delta_mB", "x_lower", "x_upper", "delta_y", "z_lower")
+        missing_keys = [k for k in required_keys if k not in fillet_fitup]
+        if missing_keys:
+            missing = ", ".join(missing_keys)
+            raise ValueError(
+                f"fillet_fitup missing required keys: {missing}; check CSV /steps/N/model/fillet_fitup/..."
+            )
+
+        axis_mode = str(fillet_fitup.get("axis_mode", "world"))
+        if axis_mode != "world":
+            raise ValueError("fillet_fitup axis_mode currently supports only 'world'.")
+
+        x_dir = np.array([1.0, 0.0, 0.0], dtype=float)
+        y_dir = np.array([0.0, 1.0, 0.0], dtype=float)
+        z_dir = np.array([0.0, 0.0, 1.0], dtype=float)
+
+        lower_points = fillet_fitup.get("lower_points", ["points.A", "points.B"])
+        upper_points = fillet_fitup.get("upper_points", ["points.D", "points.C"])
+        if isinstance(lower_points, str):
+            lower_points = [lower_points]
+        if isinstance(upper_points, str):
+            upper_points = [upper_points]
+
+        y_translation_applied_guests = set()
+        point_offsets_applied_guests = set()
+        for gid in guest_ids:
+            if gid not in y_translation_applied_guests:
+                dy = self._sample(fillet_fitup["delta_y"])
+                gtr = state.get_transform(gid)
+                state.set_transform(gid, gtr["origin"] + dy * y_dir, gtr["rpy_deg"])
+                y_translation_applied_guests.add(gid)
+
+            if gid in point_offsets_applied_guests:
+                continue
+
+            dm_a = self._sample(fillet_fitup["delta_mA"])
+            dm_b = self._sample(fillet_fitup["delta_mB"])
+
+            for ref in lower_points:
+                x_i = dm_b + self._sample(fillet_fitup["x_lower"])
+                dx_i = x_i - dm_a
+                dx_local = self._world_vec_to_local(gid, state, dx_i * x_dir)
+                state.add_point_offset(gid, self._parse_point_name(ref), dx_local)
+
+                z_i = max(0.0, float(self._sample(fillet_fitup["z_lower"])))
+                dz_local = self._world_vec_to_local(gid, state, z_i * z_dir)
+                state.add_point_offset(gid, self._parse_point_name(ref), dz_local)
+
+            for ref in upper_points:
+                x_i = dm_b + self._sample(fillet_fitup["x_upper"])
+                dx_i = x_i - dm_a
+                dx_local = self._world_vec_to_local(gid, state, dx_i * x_dir)
+                state.add_point_offset(gid, self._parse_point_name(ref), dx_local)
+
+            point_offsets_applied_guests.add(gid)
 
     def _welding_distortion(self, step: Dict[str, Any], state: AssemblyState):
         model = step.get("model", {})
