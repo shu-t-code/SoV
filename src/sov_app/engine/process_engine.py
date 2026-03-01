@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List
 
 import numpy as np
 
@@ -93,11 +93,21 @@ class ProcessEngine:
         elif op == "fitup_pair_chain":
             self._fitup_pair_chain(step, state)
 
-    def apply_steps(self, state: AssemblyState, steps_mask: List[bool] | None = None):
+    def apply_steps(
+        self,
+        state: AssemblyState,
+        steps_mask: List[bool] | None = None,
+        on_step_before: Callable[[int, Dict[str, Any], AssemblyState], None] | None = None,
+        on_step_after: Callable[[int, Dict[str, Any], AssemblyState], None] | None = None,
+    ):
         """Apply enabled flow steps to ``state`` in flow order."""
         for idx, step in enumerate(self.flow.steps):
             if steps_mask is None or (idx < len(steps_mask) and steps_mask[idx]):
+                if on_step_before is not None:
+                    on_step_before(idx, step, state)
                 self.apply_step(step, state)
+                if on_step_after is not None:
+                    on_step_after(idx, step, state)
 
     def _apply_variation(self, step: Dict[str, Any], state: AssemblyState):
         target = step.get("target", {})
