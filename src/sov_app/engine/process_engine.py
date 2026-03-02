@@ -202,8 +202,8 @@ class ProcessEngine:
             if missing_refs:
                 available_points = sorted(available)
                 raise ValueError(
-                    f"step '{step_id}' fillet_fitup references unknown points on guest '{gid}' "
-                    f"(prototype '{proto_name}'): {missing_refs}. Available: {available_points}"
+                    f"fillet_fitup point validation failed: step_id='{step_id}', guest_id='{gid}', "
+                    f"prototype='{proto_name}', missing={missing_refs}, available={available_points}"
                 )
 
         y_translation_applied_guests = set()
