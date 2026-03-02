@@ -83,9 +83,17 @@ def _run_headless(csv_path: Path, out_dir: str | None, overwrite: bool, dims_ins
 
     seed = 42
     output_dir = _resolve_headless_output_dir(csv_path, out_dir)
+    trace_enabled = out_dir is not None
     print(f"Headless output dir: {output_dir}")
 
-    rc, results = run_headless_smoke_results(csv_path, n_trials=100, seed=seed, dims_inst=dims_inst)
+    rc, results = run_headless_smoke_results(
+        csv_path,
+        n_trials=100,
+        seed=seed,
+        dims_inst=dims_inst,
+        out_dir=output_dir,
+        trace=trace_enabled,
+    )
     if rc == 0 and results is not None:
         _write_headless_outputs(results, output_dir, csv_path, seed, overwrite)
     if rc == 2:
