@@ -47,12 +47,24 @@ def test_run_headless_disables_trace_without_explicit_out_dir(monkeypatch: pytes
 
 
 def test_headless_smoke_results_writes_trace_files_when_enabled(tmp_path: Path) -> None:
-    csv_path = Path("data/model_onefile_buttpair_single_steps.csv")
+    csv_path = Path("data/model_onefile_buttpair_with_fillet_attach.csv")
 
     rc, results = run_headless_smoke_results(csv_path, n_trials=2, seed=42, out_dir=tmp_path, trace=True)
 
     assert rc == 0
     assert results is not None
-    assert len(list(tmp_path.glob("mc_trace_*__vertices.csv"))) > 0
-    assert len(list(tmp_path.glob("mc_trace_worst_*__vertices.csv"))) > 0
+    expected = [
+        "00_10_cutting",
+        "01_20_fitup_C1_on_A1_center",
+        "02_21_fitup_C2_on_A2_center",
+        "03_30_mid_fitup_butt_A1_A2",
+        "04_40_mid_welding",
+        "05_50_inspection",
+    ]
+    for step in expected:
+        assert (tmp_path / f"mc_trace_{step}__vertices.csv").exists()
+        assert (tmp_path / f"mc_trace_worst_{step}__vertices.csv").exists()
+
+    assert len(list(tmp_path.glob("mc_trace_*__vertices.csv"))) == len(expected)
+    assert len(list(tmp_path.glob("mc_trace_worst_*__vertices.csv"))) == len(expected)
     assert (tmp_path / "mc_worstcase_summary.csv").exists()
