@@ -7,6 +7,7 @@ from typing import Any
 
 import pandas as pd
 
+from .engine.monte_carlo import MonteCarloSimulator
 from .services import MonteCarloSettings, StepSelection, apply_steps, build_trial_state, load_project, run_monte_carlo
 
 DIM_COLUMNS = ("L_ab", "L_dc", "H_ad", "H_bc", "L", "H")
@@ -80,6 +81,8 @@ def run_headless_smoke_results(
     n_trials: int = 100,
     seed: int = 42,
     dims_inst: str | None = None,
+    out_dir: Path | None = None,
+    trace: bool = False,
 ) -> tuple[int, pd.DataFrame | None]:
     path = Path(csv_path).expanduser()
     if not path.exists():
@@ -90,10 +93,8 @@ def run_headless_smoke_results(
     if steps_mask:
         steps_mask[0] = True
 
-    results = run_monte_carlo(
-        app_state,
-        MonteCarloSettings(n_trials=n_trials, steps_mask=steps_mask, seed=seed),
-    )
+    sim = MonteCarloSimulator(app_state.geom, app_state.flow)
+    results = sim.run(n_trials=n_trials, steps_mask=steps_mask, seed=seed, out_dir=out_dir, trace=trace)
     resolved_dims_inst = _resolve_dims_instance(app_state, dims_inst)
     results = _inject_realized_dims_columns(
         app_state,
