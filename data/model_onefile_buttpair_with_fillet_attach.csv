@@ -75,10 +75,10 @@ flow,/steps/1/model/fillet_fitup/x_lower,N_fillet_x_lower
 flow,/steps/1/model/fillet_fitup/x_upper,N_fillet_x_upper
 flow,/steps/1/model/fillet_fitup/delta_y,N_fillet_delta_y
 flow,/steps/1/model/fillet_fitup/z_lower,LN_fillet_z_lower
-flow,/steps/1/model/fillet_fitup/lower_points/0,"""points.A"""
-flow,/steps/1/model/fillet_fitup/lower_points/1,"""points.B"""
-flow,/steps/1/model/fillet_fitup/upper_points/0,"""points.D"""
-flow,/steps/1/model/fillet_fitup/upper_points/1,"""points.C"""
+flow,/steps/1/model/fillet_fitup/lower_points/0,"""points.c1"""
+flow,/steps/1/model/fillet_fitup/lower_points/1,"""points.c2"""
+flow,/steps/1/model/fillet_fitup/upper_points/0,"""points.c4"""
+flow,/steps/1/model/fillet_fitup/upper_points/1,"""points.c3"""
 flow,/steps/1/model/fillet_fitup/axis_mode,"""world"""
 flow,/steps/2/base/instance,"""A2"""
 flow,/steps/2/base/interface,"""edge_AB"""
