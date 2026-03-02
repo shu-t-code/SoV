@@ -291,7 +291,7 @@ flow,/dists/LN_fit_L/type,"""LogNormalLinear"""
 flow,/dists/N_eps_m/mean,0
 flow,/dists/N_eps_m/std,0.5
 flow,/dists/N_eps_m/type,"""NormalLinear"""
-flow,/dists/N_eps_c/mean,0.05
+flow,/dists/N_eps_c/mean,0
 flow,/dists/N_eps_c/std,0.1
 flow,/dists/N_eps_c/type,"""NormalLinear"""
 flow,/dists/N_delta_y/type,"""NormalLinear"""
