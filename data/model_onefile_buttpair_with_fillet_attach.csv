@@ -103,10 +103,10 @@ flow,/steps/2/model/fillet_fitup/x_lower,N_fillet_x_lower
 flow,/steps/2/model/fillet_fitup/x_upper,N_fillet_x_upper
 flow,/steps/2/model/fillet_fitup/delta_y,N_fillet_delta_y
 flow,/steps/2/model/fillet_fitup/z_lower,LN_fillet_z_lower
-flow,/steps/2/model/fillet_fitup/lower_points/0,"""points.A"""
-flow,/steps/2/model/fillet_fitup/lower_points/1,"""points.B"""
-flow,/steps/2/model/fillet_fitup/upper_points/0,"""points.D"""
-flow,/steps/2/model/fillet_fitup/upper_points/1,"""points.C"""
+flow,/steps/2/model/fillet_fitup/lower_points/0,"""points.c1"""
+flow,/steps/2/model/fillet_fitup/lower_points/1,"""points.c2"""
+flow,/steps/2/model/fillet_fitup/upper_points/0,"""points.c4"""
+flow,/steps/2/model/fillet_fitup/upper_points/1,"""points.c3"""
 flow,/steps/2/model/fillet_fitup/axis_mode,"""world"""
 flow,/steps/4/id,"""40_mid_welding"""
 flow,/steps/4/model/outplane_dz,"""N_weld_dz"""
