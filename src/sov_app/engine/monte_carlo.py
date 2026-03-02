@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import csv
+import json
 from pathlib import Path
-from typing import Callable, Dict, List
+import re
+from typing import Any, Callable, Dict, List
 
 import numpy as np
 import pandas as pd
@@ -62,17 +65,277 @@ class MonteCarloSimulator:
         self.flow = flow
         self.process_engine_factory = process_engine_factory
 
-    def run(self, n_trials: int, steps_mask: List[bool], seed: int = 42) -> pd.DataFrame:
+    def run(
+        self,
+        n_trials: int,
+        steps_mask: List[bool],
+        seed: int = 42,
+        out_dir: Path | None = None,
+        trace: bool = False,
+    ) -> pd.DataFrame:
         results: List[Dict[str, float]] = []
+        trace_enabled = bool(trace and out_dir is not None)
+        trace_context: Dict[str, Any] | None = None
+        if trace_enabled:
+            trace_context = self._init_trace_context(Path(out_dir), steps_mask)
+
         for trial in range(n_trials):
             rng = np.random.default_rng(seed + trial)
             state = AssemblyState(self.geom)
             engine = self.process_engine_factory(self.geom, self.flow, rng)
-            engine.apply_steps(state, steps_mask)
+            if trace_context is None:
+                engine.apply_steps(state, steps_mask)
+            else:
+                trace_context["trial"] = trial
+                trace_context["seed_used"] = seed + trial
+                trace_context["before_snapshots"].clear()
+
+                def on_step_before(step_idx: int, step: Dict[str, Any], current_state: AssemblyState) -> None:
+                    trace_context["before_snapshots"][step_idx] = self._capture_step_vertices(step_idx, current_state)
+
+                def on_step_after(step_idx: int, step: Dict[str, Any], current_state: AssemblyState) -> None:
+                    self._record_step_trace(trace_context, step_idx, step, current_state)
+
+                engine.apply_steps(state, steps_mask, on_step_before=on_step_before, on_step_after=on_step_after)
+
             metrics = self._compute_metrics(state)
             metrics["trial"] = trial
             results.append(metrics)
+
+        if trace_context is not None:
+            self._finalize_trace(trace_context)
         return pd.DataFrame(results)
+
+    def _init_trace_context(self, out_dir: Path, steps_mask: List[bool]) -> Dict[str, Any]:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        enabled_step_indices = [
+            idx for idx, _ in enumerate(self.flow.steps) if idx < len(steps_mask) and steps_mask[idx]
+        ]
+
+        context: Dict[str, Any] = {
+            "out_dir": out_dir,
+            "trace_files": {},
+            "trace_writers": {},
+            "trace_handles": {},
+            "before_snapshots": {},
+            "trial": -1,
+            "seed_used": -1,
+            "worst": {},
+            "steps_mask": steps_mask,
+            "step_meta": {},
+        }
+
+        for step_idx in enabled_step_indices:
+            step = self.flow.steps[step_idx]
+            safe_step_id = self._sanitize_for_filename(step.get("id", "noid"))
+            trace_name = f"mc_trace_{step_idx:02d}_{safe_step_id}__vertices.csv"
+            trace_path = out_dir / trace_name
+            handle = trace_path.open("w", newline="", encoding="utf-8")
+            writer = csv.writer(handle)
+            writer.writerow(
+                [
+                    "trial",
+                    "seed_used",
+                    "step_idx",
+                    "step_id",
+                    "op",
+                    "instance_id",
+                    "vertex",
+                    "x_before",
+                    "y_before",
+                    "z_before",
+                    "x_after",
+                    "y_after",
+                    "z_after",
+                    "model_spec_json",
+                    "model_dists_json",
+                    "model_sigma_x",
+                    "model_sigma_y",
+                    "model_sigma_m",
+                    "model_sigma_fitup_y",
+                ]
+            )
+            context["trace_files"][step_idx] = trace_path
+            context["trace_writers"][step_idx] = writer
+            context["trace_handles"][step_idx] = handle
+            context["step_meta"][step_idx] = {
+                "step_id": str(step.get("id", "noid") or "noid"),
+                "op": str(step.get("op", "")),
+            }
+        return context
+
+    def _capture_step_vertices(self, step_idx: int, state: AssemblyState) -> Dict[tuple[str, str], np.ndarray]:
+        captures: Dict[tuple[str, str], np.ndarray] = {}
+        for inst_id in self.geom.get_instance_ids():
+            proto = self.geom.get_prototype(self.geom.get_instance(inst_id).get("prototype", ""))
+            for vertex in proto.get("features", {}).get("points", {}).keys():
+                captures[(inst_id, str(vertex))] = get_world_point(self.geom, state, inst_id, f"points.{vertex}")
+        return captures
+
+    def _record_step_trace(
+        self,
+        trace_context: Dict[str, Any],
+        step_idx: int,
+        step: Dict[str, Any],
+        state: AssemblyState,
+    ) -> None:
+        before = trace_context["before_snapshots"].get(step_idx, {})
+        after = self._capture_step_vertices(step_idx, state)
+        writer = trace_context["trace_writers"].get(step_idx)
+        if writer is None:
+            return
+
+        model_spec_json = json.dumps(step.get("model", {}), ensure_ascii=False, sort_keys=True)
+        model_dists_json = json.dumps(self._resolve_model_dists(step.get("model", {})), ensure_ascii=False, sort_keys=True)
+        sigma_vals = self._extract_sigma_columns(step.get("model", {}))
+        rows: List[List[Any]] = []
+        max_vertex_delta = -1.0
+        for key, pos_after in after.items():
+            inst_id, vertex = key
+            pos_before = before.get(key, pos_after)
+            delta = float(np.linalg.norm(pos_after - pos_before))
+            max_vertex_delta = max(max_vertex_delta, delta)
+            row = [
+                trace_context["trial"],
+                trace_context["seed_used"],
+                step_idx,
+                str(step.get("id", "noid") or "noid"),
+                str(step.get("op", "")),
+                inst_id,
+                vertex,
+                float(pos_before[0]),
+                float(pos_before[1]),
+                float(pos_before[2]),
+                float(pos_after[0]),
+                float(pos_after[1]),
+                float(pos_after[2]),
+                model_spec_json,
+                model_dists_json,
+                sigma_vals["model_sigma_x"],
+                sigma_vals["model_sigma_y"],
+                sigma_vals["model_sigma_m"],
+                sigma_vals["model_sigma_fitup_y"],
+            ]
+            writer.writerow(row)
+            rows.append(row)
+
+        current_worst = trace_context["worst"].get(step_idx)
+        if current_worst is None or max_vertex_delta > current_worst["value_worst"]:
+            trace_context["worst"][step_idx] = {
+                "criterion": "max_vertex_delta",
+                "trial_worst": trace_context["trial"],
+                "value_worst": max_vertex_delta,
+                "rows": rows,
+            }
+
+    def _finalize_trace(self, trace_context: Dict[str, Any]) -> None:
+        for handle in trace_context["trace_handles"].values():
+            handle.close()
+
+        summary_path = trace_context["out_dir"] / "mc_worstcase_summary.csv"
+        with summary_path.open("w", newline="", encoding="utf-8") as fp:
+            writer = csv.writer(fp)
+            writer.writerow(["step_idx", "step_id", "op", "criterion", "trial_worst", "value_worst"])
+            for step_idx in sorted(trace_context["worst"].keys()):
+                meta = trace_context["step_meta"][step_idx]
+                worst = trace_context["worst"][step_idx]
+                writer.writerow(
+                    [
+                        step_idx,
+                        meta["step_id"],
+                        meta["op"],
+                        worst["criterion"],
+                        worst["trial_worst"],
+                        worst["value_worst"],
+                    ]
+                )
+
+                safe_step_id = self._sanitize_for_filename(meta["step_id"])
+                worst_trace_path = trace_context["out_dir"] / f"mc_trace_worst_{step_idx:02d}_{safe_step_id}__vertices.csv"
+                with worst_trace_path.open("w", newline="", encoding="utf-8") as worst_fp:
+                    worst_writer = csv.writer(worst_fp)
+                    worst_writer.writerow(
+                        [
+                            "trial",
+                            "seed_used",
+                            "step_idx",
+                            "step_id",
+                            "op",
+                            "instance_id",
+                            "vertex",
+                            "x_before",
+                            "y_before",
+                            "z_before",
+                            "x_after",
+                            "y_after",
+                            "z_after",
+                            "model_spec_json",
+                            "model_dists_json",
+                            "model_sigma_x",
+                            "model_sigma_y",
+                            "model_sigma_m",
+                            "model_sigma_fitup_y",
+                        ]
+                    )
+                    worst_writer.writerows(worst["rows"])
+
+    def _resolve_model_dists(self, value: Any) -> Any:
+        if isinstance(value, str):
+            return self.flow.dists.get(value, value)
+        if isinstance(value, list):
+            return [self._resolve_model_dists(item) for item in value]
+        if isinstance(value, dict):
+            return {k: self._resolve_model_dists(v) for k, v in value.items()}
+        return value
+
+    def _extract_sigma_columns(self, model: Dict[str, Any]) -> Dict[str, float]:
+        sigma_map = {
+            "model_sigma_x": np.nan,
+            "model_sigma_y": np.nan,
+            "model_sigma_m": np.nan,
+            "model_sigma_fitup_y": np.nan,
+        }
+
+        for path, node in self._iter_model_nodes(model):
+            std_value = self._extract_std(node)
+            if std_value is None:
+                continue
+            low_path = path.lower()
+            if np.isnan(sigma_map["model_sigma_x"]) and "x" in low_path:
+                sigma_map["model_sigma_x"] = std_value
+            if np.isnan(sigma_map["model_sigma_y"]) and "y" in low_path:
+                sigma_map["model_sigma_y"] = std_value
+            if np.isnan(sigma_map["model_sigma_m"]) and "delta_m" in path:
+                sigma_map["model_sigma_m"] = std_value
+            if np.isnan(sigma_map["model_sigma_fitup_y"]) and ("fitup" in low_path and "delta_y" in low_path):
+                sigma_map["model_sigma_fitup_y"] = std_value
+        return sigma_map
+
+    def _iter_model_nodes(self, value: Any, prefix: str = ""):
+        if isinstance(value, dict):
+            yield prefix, value
+            for k, v in value.items():
+                child_prefix = f"{prefix}.{k}" if prefix else str(k)
+                yield from self._iter_model_nodes(v, child_prefix)
+        elif isinstance(value, list):
+            for idx, item in enumerate(value):
+                child_prefix = f"{prefix}[{idx}]"
+                yield from self._iter_model_nodes(item, child_prefix)
+
+    def _extract_std(self, node: Any) -> float | None:
+        resolved = self._resolve_model_dists(node)
+        if isinstance(resolved, dict) and "std" in resolved:
+            try:
+                return float(resolved["std"])
+            except (TypeError, ValueError):
+                return None
+        return None
+
+    def _sanitize_for_filename(self, value: Any) -> str:
+        text = str(value or "noid")
+        safe = re.sub(r"[^A-Za-z0-9_-]+", "_", text)
+        safe = safe.strip("_")
+        return safe or "noid"
 
     def _compute_metrics(self, state: AssemblyState) -> Dict[str, float]:
         metrics: Dict[str, float] = {}
