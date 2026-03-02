@@ -13,6 +13,11 @@ from .services import MonteCarloSettings, StepSelection, apply_steps, build_tria
 DIM_COLUMNS = ("L_ab", "L_dc", "H_ad", "H_bc", "L", "H")
 
 
+def _all_steps_mask(app_state: Any) -> list[bool]:
+    """Enable all flow steps for headless execution."""
+    return [True] * len(app_state.flow.steps)
+
+
 def _pick_default_dims_instance(app_state: Any) -> str | None:
     """Pick the first geometry instance as default for headless dims output."""
     inst_ids = app_state.geom.get_instance_ids()
@@ -64,9 +69,7 @@ def run_headless_smoke(csv_path: str | Path, n_trials: int = 100, seed: int = 42
         return 2
 
     app_state = load_project(path)
-    steps_mask = [False] * len(app_state.flow.steps)
-    if steps_mask:
-        steps_mask[0] = True
+    steps_mask = _all_steps_mask(app_state)
 
     apply_steps(app_state, StepSelection(steps_mask=steps_mask, seed=seed))
     results = run_monte_carlo(
@@ -89,9 +92,7 @@ def run_headless_smoke_results(
         return 2, None
 
     app_state = load_project(path)
-    steps_mask = [False] * len(app_state.flow.steps)
-    if steps_mask:
-        steps_mask[0] = True
+    steps_mask = _all_steps_mask(app_state)
 
     sim = MonteCarloSimulator(app_state.geom, app_state.flow)
     results = sim.run(n_trials=n_trials, steps_mask=steps_mask, seed=seed, out_dir=out_dir, trace=trace)
