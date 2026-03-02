@@ -187,6 +187,24 @@ class ProcessEngine:
             lower_points = [lower_points]
         if isinstance(upper_points, str):
             upper_points = [upper_points]
+        refs = list(lower_points) + list(upper_points)
+        step_id = str(step.get("id", ""))
+
+        for gid in guest_ids:
+            inst = self.geom.get_instance(gid)
+            proto_name = inst.get("prototype", "")
+            proto = self.geom.get_prototype(proto_name)
+            available = set(proto.get("features", {}).get("points", {}).keys())
+            missing_refs = []
+            for ref in refs:
+                if self._parse_point_name(ref) not in available:
+                    missing_refs.append(ref)
+            if missing_refs:
+                available_points = sorted(available)
+                raise ValueError(
+                    f"step '{step_id}' fillet_fitup references unknown points on guest '{gid}' "
+                    f"(prototype '{proto_name}'): {missing_refs}. Available: {available_points}"
+                )
 
         y_translation_applied_guests = set()
         point_offsets_applied_guests = set()
