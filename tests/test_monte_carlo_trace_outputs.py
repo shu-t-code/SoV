@@ -42,11 +42,21 @@ def test_monte_carlo_trace_outputs_are_generated(tmp_path: Path) -> None:
         "x_after",
         "y_after",
         "z_after",
+        "x_after_nominal",
+        "y_after_nominal",
+        "z_after_nominal",
+        "dx",
+        "dy",
+        "dz",
         "model_spec_json",
         "model_dists_json",
     }
     trace_df = pd.read_csv(trace_files[0])
     assert required_cols.issubset(set(trace_df.columns))
+    assert {"model_sigma_x", "model_sigma_y", "model_sigma_m", "model_sigma_fitup_y"}.isdisjoint(set(trace_df.columns))
+    np.testing.assert_allclose(trace_df["dx"].to_numpy(), (trace_df["x_after"] - trace_df["x_after_nominal"]).to_numpy())
+    np.testing.assert_allclose(trace_df["dy"].to_numpy(), (trace_df["y_after"] - trace_df["y_after_nominal"]).to_numpy())
+    np.testing.assert_allclose(trace_df["dz"].to_numpy(), (trace_df["z_after"] - trace_df["z_after_nominal"]).to_numpy())
 
     summary_file = tmp_path / "mc_worstcase_summary.csv"
     assert summary_file.exists()

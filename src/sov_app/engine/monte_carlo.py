@@ -123,6 +123,7 @@ class MonteCarloSimulator:
             "worst": {},
             "steps_mask": steps_mask,
             "step_meta": {},
+            "nominal_after": self._compute_nominal_after(steps_mask),
         }
 
         for step_idx in enabled_step_indices:
@@ -147,6 +148,9 @@ class MonteCarloSimulator:
                     "x_after",
                     "y_after",
                     "z_after",
+                    "x_after_nominal",
+                    "y_after_nominal",
+                    "z_after_nominal",
                     "dx",
                     "dy",
                     "dz",
@@ -162,6 +166,47 @@ class MonteCarloSimulator:
                 "op": str(step.get("op", "")),
             }
         return context
+
+    def _compute_nominal_after(self, steps_mask: List[bool]) -> Dict[tuple[int, str, str], np.ndarray]:
+        nominal_after: Dict[tuple[int, str, str], np.ndarray] = {}
+        nominal_state = AssemblyState(self.geom)
+        nominal_engine = self.process_engine_factory(self.geom, self.flow, np.random.default_rng(0))
+        original_sample = nominal_engine._sample
+
+        def _sample_nominal(spec: Any) -> float:
+            return self._sample_nominal_value(spec)
+
+        nominal_engine._sample = _sample_nominal
+        try:
+            for step_idx, step in enumerate(self.flow.steps):
+                if step_idx >= len(steps_mask) or not steps_mask[step_idx]:
+                    continue
+                nominal_engine.apply_step(step, nominal_state)
+                nominal_vertices = self._capture_step_vertices(step_idx, nominal_state)
+                for key, pos in nominal_vertices.items():
+                    nominal_after[(step_idx, key[0], key[1])] = pos
+        finally:
+            nominal_engine._sample = original_sample
+        return nominal_after
+
+    def _sample_nominal_value(self, spec: Any) -> float:
+        if isinstance(spec, str):
+            return self._sample_nominal_value(self.flow.dists.get(spec, 0.0))
+        if isinstance(spec, (int, float)):
+            return float(spec)
+        if not isinstance(spec, dict):
+            return 0.0
+
+        dtype = str(spec.get("type", "Fixed"))
+        if dtype == "Fixed":
+            return float(spec.get("value", 0.0))
+        if dtype in {"NormalLinear", "LogNormalLinear"}:
+            return float(spec.get("mean", 0.0))
+        if "mean" in spec:
+            return float(spec.get("mean", 0.0))
+        if "value" in spec:
+            return float(spec.get("value", 0.0))
+        return 0.0
 
     def _capture_step_vertices(self, step_idx: int, state: AssemblyState) -> Dict[tuple[str, str], np.ndarray]:
         captures: Dict[tuple[str, str], np.ndarray] = {}
@@ -191,6 +236,7 @@ class MonteCarloSimulator:
         for key, pos_after in after.items():
             inst_id, vertex = key
             pos_before = before.get(key, pos_after)
+            nominal_after = trace_context["nominal_after"].get((step_idx, inst_id, vertex), pos_after)
             delta = float(np.linalg.norm(pos_after - pos_before))
             max_vertex_delta = max(max_vertex_delta, delta)
             row = [
@@ -207,9 +253,12 @@ class MonteCarloSimulator:
                 float(pos_after[0]),
                 float(pos_after[1]),
                 float(pos_after[2]),
-                float(pos_after[0] - pos_before[0]),
-                float(pos_after[1] - pos_before[1]),
-                float(pos_after[2] - pos_before[2]),
+                float(nominal_after[0]),
+                float(nominal_after[1]),
+                float(nominal_after[2]),
+                float(pos_after[0] - nominal_after[0]),
+                float(pos_after[1] - nominal_after[1]),
+                float(pos_after[2] - nominal_after[2]),
                 model_spec_json,
                 model_dists_json,
             ]
@@ -266,6 +315,9 @@ class MonteCarloSimulator:
                             "x_after",
                             "y_after",
                             "z_after",
+                            "x_after_nominal",
+                            "y_after_nominal",
+                            "z_after_nominal",
                             "dx",
                             "dy",
                             "dz",
