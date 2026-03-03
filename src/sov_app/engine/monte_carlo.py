@@ -45,6 +45,41 @@ TRACE_VERTEX_HEADER = [
     "model_dists_json",
 ]
 
+TRACE_STEP_STD_HEADER = [
+    "step_idx",
+    "step_id",
+    "op",
+    "instance_id",
+    "vertex",
+    "n_dx_step",
+    "std_dx_step",
+    "n_dy_step",
+    "std_dy_step",
+    "n_dz_step",
+    "std_dz_step",
+]
+
+
+class RunningAxisStats:
+    def __init__(self) -> None:
+        self.n = 0
+        self.mean = 0.0
+        self.m2 = 0.0
+
+    def update(self, value: float) -> None:
+        if np.isnan(value):
+            return
+        self.n += 1
+        delta = value - self.mean
+        self.mean += delta / self.n
+        delta2 = value - self.mean
+        self.m2 += delta * delta2
+
+    def std_population(self) -> float:
+        if self.n == 0:
+            return float("nan")
+        return float(np.sqrt(self.m2 / self.n))
+
 
 def build_state_for_trial(
     geom: GeometryModel,
@@ -152,6 +187,7 @@ class MonteCarloSimulator:
             "steps_mask": steps_mask,
             "step_meta": {},
             "nominal_after": self._compute_nominal_after(steps_mask),
+            "step_increment_stats": {},
         }
 
         for step_idx in enabled_step_indices:
@@ -170,6 +206,30 @@ class MonteCarloSimulator:
                 "op": str(step.get("op", "")),
             }
         return context
+
+    def _update_step_increment_stats(
+        self,
+        trace_context: Dict[str, Any],
+        step_idx: int,
+        step: Dict[str, Any],
+        instance_id: str,
+        vertex: str,
+        dx_step: float,
+        dy_step: float,
+        dz_step: float,
+    ) -> None:
+        key = (step_idx, str(step.get("id", "noid") or "noid"), str(step.get("op", "")), instance_id, vertex)
+        stats = trace_context["step_increment_stats"].get(key)
+        if stats is None:
+            stats = {
+                "dx": RunningAxisStats(),
+                "dy": RunningAxisStats(),
+                "dz": RunningAxisStats(),
+            }
+            trace_context["step_increment_stats"][key] = stats
+        stats["dx"].update(dx_step)
+        stats["dy"].update(dy_step)
+        stats["dz"].update(dz_step)
 
     def _compute_nominal_after(self, steps_mask: List[bool]) -> Dict[tuple[int, str, str], np.ndarray]:
         nominal_after: Dict[tuple[int, str, str], np.ndarray] = {}
@@ -263,6 +323,16 @@ class MonteCarloSimulator:
                 dz_step = float(dz - dz_prev)
             delta = float(np.linalg.norm(pos_after - pos_before))
             max_vertex_delta = max(max_vertex_delta, delta)
+            self._update_step_increment_stats(
+                trace_context=trace_context,
+                step_idx=step_idx,
+                step=step,
+                instance_id=inst_id,
+                vertex=vertex,
+                dx_step=dx_step,
+                dy_step=dy_step,
+                dz_step=dz_step,
+            )
             row = [
                 trace_context["trial"],
                 trace_context["seed_used"],
@@ -329,6 +399,32 @@ class MonteCarloSimulator:
                     worst_writer = csv.writer(worst_fp)
                     worst_writer.writerow(TRACE_VERTEX_HEADER)
                     worst_writer.writerows(worst["rows"])
+
+        std_vertices_path = trace_context["out_dir"] / "mc_step_increment_std_vertices.csv"
+        with std_vertices_path.open("w", newline="", encoding="utf-8") as std_fp:
+            writer = csv.writer(std_fp)
+            writer.writerow(TRACE_STEP_STD_HEADER)
+            for key in sorted(trace_context["step_increment_stats"].keys()):
+                step_idx, step_id, op, instance_id, vertex = key
+                stats = trace_context["step_increment_stats"][key]
+                dx_std = stats["dx"].std_population()
+                dy_std = stats["dy"].std_population()
+                dz_std = stats["dz"].std_population()
+                writer.writerow(
+                    [
+                        step_idx,
+                        step_id,
+                        op,
+                        instance_id,
+                        vertex,
+                        stats["dx"].n,
+                        "" if np.isnan(dx_std) else dx_std,
+                        stats["dy"].n,
+                        "" if np.isnan(dy_std) else dy_std,
+                        stats["dz"].n,
+                        "" if np.isnan(dz_std) else dz_std,
+                    ]
+                )
 
     def _resolve_model_dists(self, value: Any) -> Any:
         if isinstance(value, str):
