@@ -65,3 +65,38 @@ def test_monte_carlo_trace_outputs_are_generated(tmp_path: Path) -> None:
 
     worst_files = sorted(tmp_path.glob("mc_trace_worst_*__vertices.csv"))
     assert len(worst_files) == len(flow.steps)
+
+
+
+def test_step_increment_std_vertices_csv_is_generated(tmp_path: Path) -> None:
+    geom_dict, flow_dict = load_data_from_csv(Path("data/model_onefile_buttpair_with_fillet_attach.csv"))
+    geom = GeometryModel(geom_dict)
+    flow = FlowModel(flow_dict)
+    sim = MonteCarloSimulator(geom, flow)
+
+    sim.run(n_trials=4, steps_mask=[True for _ in flow.steps], seed=42, out_dir=tmp_path, trace=True)
+
+    std_file = tmp_path / "mc_step_increment_std_vertices.csv"
+    assert std_file.exists()
+
+    std_df = pd.read_csv(std_file)
+    assert list(std_df.columns) == [
+        "step_idx",
+        "step_id",
+        "op",
+        "instance_id",
+        "vertex",
+        "n_dx_step",
+        "std_dx_step",
+        "n_dy_step",
+        "std_dy_step",
+        "n_dz_step",
+        "std_dz_step",
+    ]
+
+    step1_c1 = std_df[(std_df["step_idx"] == 1) & (std_df["instance_id"] == "C1")]
+    assert set(step1_c1["vertex"].tolist()) >= {"c1", "c2", "c3", "c4"}
+
+    step0_rows = std_df[std_df["step_idx"] == 0]
+    assert (step0_rows[["n_dx_step", "n_dy_step", "n_dz_step"]] == 0).all().all()
+    assert step0_rows[["std_dx_step", "std_dy_step", "std_dz_step"]].isna().all().all()
