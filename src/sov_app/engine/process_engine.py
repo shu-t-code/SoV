@@ -181,30 +181,7 @@ class ProcessEngine:
         y_dir = np.array([0.0, 1.0, 0.0], dtype=float)
         z_dir = np.array([0.0, 0.0, 1.0], dtype=float)
 
-        lower_points = fillet_fitup.get("lower_points", ["points.A", "points.B"])
-        upper_points = fillet_fitup.get("upper_points", ["points.D", "points.C"])
-        if isinstance(lower_points, str):
-            lower_points = [lower_points]
-        if isinstance(upper_points, str):
-            upper_points = [upper_points]
-        refs = list(lower_points) + list(upper_points)
         step_id = str(step.get("id", ""))
-
-        for gid in guest_ids:
-            inst = self.geom.get_instance(gid)
-            proto_name = inst.get("prototype", "")
-            proto = self.geom.get_prototype(proto_name)
-            available = set(proto.get("features", {}).get("points", {}).keys())
-            missing_refs = []
-            for ref in refs:
-                if self._parse_point_name(ref) not in available:
-                    missing_refs.append(ref)
-            if missing_refs:
-                available_points = sorted(available)
-                raise ValueError(
-                    f"fillet_fitup point validation failed: step_id='{step_id}', guest_id='{gid}', "
-                    f"prototype='{proto_name}', missing={missing_refs}, available={available_points}"
-                )
 
         y_translation_applied_guests = set()
         point_offsets_applied_guests = set()
@@ -221,21 +198,46 @@ class ProcessEngine:
             dm_a = self._sample(fillet_fitup["delta_mA"])
             dm_b = self._sample(fillet_fitup["delta_mB"])
 
-            for ref in lower_points:
+            inst = self.geom.get_instance(gid)
+            proto_name = inst.get("prototype", "")
+            proto = self.geom.get_prototype(proto_name)
+            vertex_names = sorted(proto.get("features", {}).get("points", {}).keys())
+            if len(vertex_names) != 4:
+                raise ValueError(
+                    f"fillet_fitup supports exactly 4 vertices: step_id='{step_id}', guest_id='{gid}', "
+                    f"n_vertices={len(vertex_names)}"
+                )
+
+            world_points = {vnm: get_world_point(self.geom, state, gid, f"points.{vnm}") for vnm in vertex_names}
+            by_z = sorted(vertex_names, key=lambda v: (float(world_points[v][2]), v))
+            lower_vertices = by_z[:2]
+            upper_vertices = by_z[2:]
+            lower_by_y = sorted(lower_vertices, key=lambda v: (float(world_points[v][1]), v))
+            upper_by_y = sorted(upper_vertices, key=lambda v: (float(world_points[v][1]), v))
+
+            first_lower = lower_by_y[0]
+            first_upper = min(upper_by_y, key=lambda v: (abs(float(world_points[first_lower][1] - world_points[v][1])), v))
+            second_lower = lower_by_y[1]
+            second_upper = upper_by_y[0] if upper_by_y[0] != first_upper else upper_by_y[1]
+            pair_vertices = [(first_lower, first_upper), (second_lower, second_upper)]
+
+            fillet_fitup["lower_points_effective"] = [f"points.{v}" for v in lower_vertices]
+            fillet_fitup["upper_points_effective"] = [f"points.{v}" for v in upper_vertices]
+            fillet_fitup["pair_effective"] = [
+                {"lower": f"points.{lv}", "upper": f"points.{uv}"} for lv, uv in pair_vertices
+            ]
+
+            for lower_v, upper_v in pair_vertices:
                 x_i = dm_b + self._sample(fillet_fitup["x_lower"])
                 dx_i = x_i - dm_a
                 dx_local = self._world_vec_to_local(gid, state, dx_i * x_dir)
-                state.add_point_offset(gid, self._parse_point_name(ref), dx_local)
-
                 z_i = max(0.0, float(self._sample(fillet_fitup["z_lower"])))
                 dz_local = self._world_vec_to_local(gid, state, z_i * z_dir)
-                state.add_point_offset(gid, self._parse_point_name(ref), dz_local)
 
-            for ref in upper_points:
-                x_i = dm_b + self._sample(fillet_fitup["x_upper"])
-                dx_i = x_i - dm_a
-                dx_local = self._world_vec_to_local(gid, state, dx_i * x_dir)
-                state.add_point_offset(gid, self._parse_point_name(ref), dx_local)
+                state.add_point_offset(gid, lower_v, dx_local)
+                state.add_point_offset(gid, lower_v, dz_local)
+                state.add_point_offset(gid, upper_v, dx_local)
+                state.add_point_offset(gid, upper_v, dz_local)
 
             point_offsets_applied_guests.add(gid)
 
