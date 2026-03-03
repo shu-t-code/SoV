@@ -147,12 +147,11 @@ class MonteCarloSimulator:
                     "x_after",
                     "y_after",
                     "z_after",
+                    "dx",
+                    "dy",
+                    "dz",
                     "model_spec_json",
                     "model_dists_json",
-                    "model_sigma_x",
-                    "model_sigma_y",
-                    "model_sigma_m",
-                    "model_sigma_fitup_y",
                 ]
             )
             context["trace_files"][step_idx] = trace_path
@@ -187,7 +186,6 @@ class MonteCarloSimulator:
 
         model_spec_json = json.dumps(step.get("model", {}), ensure_ascii=False, sort_keys=True)
         model_dists_json = json.dumps(self._resolve_model_dists(step.get("model", {})), ensure_ascii=False, sort_keys=True)
-        sigma_vals = self._extract_sigma_columns(step.get("model", {}))
         rows: List[List[Any]] = []
         max_vertex_delta = -1.0
         for key, pos_after in after.items():
@@ -209,12 +207,11 @@ class MonteCarloSimulator:
                 float(pos_after[0]),
                 float(pos_after[1]),
                 float(pos_after[2]),
+                float(pos_after[0] - pos_before[0]),
+                float(pos_after[1] - pos_before[1]),
+                float(pos_after[2] - pos_before[2]),
                 model_spec_json,
                 model_dists_json,
-                sigma_vals["model_sigma_x"],
-                sigma_vals["model_sigma_y"],
-                sigma_vals["model_sigma_m"],
-                sigma_vals["model_sigma_fitup_y"],
             ]
             writer.writerow(row)
             rows.append(row)
@@ -269,12 +266,11 @@ class MonteCarloSimulator:
                             "x_after",
                             "y_after",
                             "z_after",
+                            "dx",
+                            "dy",
+                            "dz",
                             "model_spec_json",
                             "model_dists_json",
-                            "model_sigma_x",
-                            "model_sigma_y",
-                            "model_sigma_m",
-                            "model_sigma_fitup_y",
                         ]
                     )
                     worst_writer.writerows(worst["rows"])
@@ -287,49 +283,6 @@ class MonteCarloSimulator:
         if isinstance(value, dict):
             return {k: self._resolve_model_dists(v) for k, v in value.items()}
         return value
-
-    def _extract_sigma_columns(self, model: Dict[str, Any]) -> Dict[str, float]:
-        sigma_map = {
-            "model_sigma_x": np.nan,
-            "model_sigma_y": np.nan,
-            "model_sigma_m": np.nan,
-            "model_sigma_fitup_y": np.nan,
-        }
-
-        for path, node in self._iter_model_nodes(model):
-            std_value = self._extract_std(node)
-            if std_value is None:
-                continue
-            low_path = path.lower()
-            if np.isnan(sigma_map["model_sigma_x"]) and "x" in low_path:
-                sigma_map["model_sigma_x"] = std_value
-            if np.isnan(sigma_map["model_sigma_y"]) and "y" in low_path:
-                sigma_map["model_sigma_y"] = std_value
-            if np.isnan(sigma_map["model_sigma_m"]) and "delta_m" in path:
-                sigma_map["model_sigma_m"] = std_value
-            if np.isnan(sigma_map["model_sigma_fitup_y"]) and ("fitup" in low_path and "delta_y" in low_path):
-                sigma_map["model_sigma_fitup_y"] = std_value
-        return sigma_map
-
-    def _iter_model_nodes(self, value: Any, prefix: str = ""):
-        if isinstance(value, dict):
-            yield prefix, value
-            for k, v in value.items():
-                child_prefix = f"{prefix}.{k}" if prefix else str(k)
-                yield from self._iter_model_nodes(v, child_prefix)
-        elif isinstance(value, list):
-            for idx, item in enumerate(value):
-                child_prefix = f"{prefix}[{idx}]"
-                yield from self._iter_model_nodes(item, child_prefix)
-
-    def _extract_std(self, node: Any) -> float | None:
-        resolved = self._resolve_model_dists(node)
-        if isinstance(resolved, dict) and "std" in resolved:
-            try:
-                return float(resolved["std"])
-            except (TypeError, ValueError):
-                return None
-        return None
 
     def _sanitize_for_filename(self, value: Any) -> str:
         text = str(value or "noid")
