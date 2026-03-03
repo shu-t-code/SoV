@@ -18,6 +18,34 @@ from .process_engine import ProcessEngine
 ProcessEngineFactory = Callable[[GeometryModel, FlowModel, np.random.Generator], ProcessEngine]
 
 
+TRACE_VERTEX_HEADER = [
+    "trial",
+    "seed_used",
+    "step_idx",
+    "step_id",
+    "op",
+    "instance_id",
+    "vertex",
+    "x_before",
+    "y_before",
+    "z_before",
+    "x_after",
+    "y_after",
+    "z_after",
+    "x_after_nominal",
+    "y_after_nominal",
+    "z_after_nominal",
+    "dx",
+    "dy",
+    "dz",
+    "dx_step",
+    "dy_step",
+    "dz_step",
+    "model_spec_json",
+    "model_dists_json",
+]
+
+
 def build_state_for_trial(
     geom: GeometryModel,
     flow: FlowModel,
@@ -133,31 +161,7 @@ class MonteCarloSimulator:
             trace_path = out_dir / trace_name
             handle = trace_path.open("w", newline="", encoding="utf-8")
             writer = csv.writer(handle)
-            writer.writerow(
-                [
-                    "trial",
-                    "seed_used",
-                    "step_idx",
-                    "step_id",
-                    "op",
-                    "instance_id",
-                    "vertex",
-                    "x_before",
-                    "y_before",
-                    "z_before",
-                    "x_after",
-                    "y_after",
-                    "z_after",
-                    "x_after_nominal",
-                    "y_after_nominal",
-                    "z_after_nominal",
-                    "dx",
-                    "dy",
-                    "dz",
-                    "model_spec_json",
-                    "model_dists_json",
-                ]
-            )
+            writer.writerow(TRACE_VERTEX_HEADER)
             context["trace_files"][step_idx] = trace_path
             context["trace_writers"][step_idx] = writer
             context["trace_handles"][step_idx] = handle
@@ -237,6 +241,26 @@ class MonteCarloSimulator:
             inst_id, vertex = key
             pos_before = before.get(key, pos_after)
             nominal_after = trace_context["nominal_after"].get((step_idx, inst_id, vertex), pos_after)
+            dx = float(pos_after[0] - nominal_after[0])
+            dy = float(pos_after[1] - nominal_after[1])
+            dz = float(pos_after[2] - nominal_after[2])
+            if step_idx == 0:
+                dx_step = float("nan")
+                dy_step = float("nan")
+                dz_step = float("nan")
+            else:
+                nominal_before = trace_context["nominal_after"].get((step_idx - 1, inst_id, vertex))
+                if nominal_before is None:
+                    raise ValueError(
+                        f"Missing nominal trace for prev step: step_id={step.get('id', 'noid')} "
+                        f"instance_id={inst_id} vertex={vertex}"
+                    )
+                dx_prev = float(pos_before[0] - nominal_before[0])
+                dy_prev = float(pos_before[1] - nominal_before[1])
+                dz_prev = float(pos_before[2] - nominal_before[2])
+                dx_step = float(dx - dx_prev)
+                dy_step = float(dy - dy_prev)
+                dz_step = float(dz - dz_prev)
             delta = float(np.linalg.norm(pos_after - pos_before))
             max_vertex_delta = max(max_vertex_delta, delta)
             row = [
@@ -256,9 +280,12 @@ class MonteCarloSimulator:
                 float(nominal_after[0]),
                 float(nominal_after[1]),
                 float(nominal_after[2]),
-                float(pos_after[0] - nominal_after[0]),
-                float(pos_after[1] - nominal_after[1]),
-                float(pos_after[2] - nominal_after[2]),
+                dx,
+                dy,
+                dz,
+                dx_step,
+                dy_step,
+                dz_step,
                 model_spec_json,
                 model_dists_json,
             ]
@@ -300,31 +327,7 @@ class MonteCarloSimulator:
                 worst_trace_path = trace_context["out_dir"] / f"mc_trace_worst_{step_idx:02d}_{safe_step_id}__vertices.csv"
                 with worst_trace_path.open("w", newline="", encoding="utf-8") as worst_fp:
                     worst_writer = csv.writer(worst_fp)
-                    worst_writer.writerow(
-                        [
-                            "trial",
-                            "seed_used",
-                            "step_idx",
-                            "step_id",
-                            "op",
-                            "instance_id",
-                            "vertex",
-                            "x_before",
-                            "y_before",
-                            "z_before",
-                            "x_after",
-                            "y_after",
-                            "z_after",
-                            "x_after_nominal",
-                            "y_after_nominal",
-                            "z_after_nominal",
-                            "dx",
-                            "dy",
-                            "dz",
-                            "model_spec_json",
-                            "model_dists_json",
-                        ]
-                    )
+                    worst_writer.writerow(TRACE_VERTEX_HEADER)
                     worst_writer.writerows(worst["rows"])
 
     def _resolve_model_dists(self, value: Any) -> Any:
