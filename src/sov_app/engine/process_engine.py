@@ -228,15 +228,20 @@ class ProcessEngine:
             ]
 
             for lower_v, upper_v in pair_vertices:
-                x_i = dm_b + self._sample(fillet_fitup["x_lower"])
-                dx_i = x_i - dm_a
-                dx_local = self._world_vec_to_local(gid, state, dx_i * x_dir)
+                x_lower_i = dm_b + self._sample(fillet_fitup["x_lower"])
+                dx_lower_i = x_lower_i - dm_a
+                dx_lower_local = self._world_vec_to_local(gid, state, dx_lower_i * x_dir)
+
+                x_upper_i = dm_b + self._sample(fillet_fitup["x_upper"])
+                dx_upper_i = x_upper_i - dm_a
+                dx_upper_local = self._world_vec_to_local(gid, state, dx_upper_i * x_dir)
+
                 z_i = max(0.0, float(self._sample(fillet_fitup["z_lower"])))
                 dz_local = self._world_vec_to_local(gid, state, z_i * z_dir)
 
-                state.add_point_offset(gid, lower_v, dx_local)
+                state.add_point_offset(gid, lower_v, dx_lower_local)
                 state.add_point_offset(gid, lower_v, dz_local)
-                state.add_point_offset(gid, upper_v, dx_local)
+                state.add_point_offset(gid, upper_v, dx_upper_local)
                 state.add_point_offset(gid, upper_v, dz_local)
 
             point_offsets_applied_guests.add(gid)
