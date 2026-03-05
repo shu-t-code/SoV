@@ -155,6 +155,7 @@ class AssemblyState:
         self.transforms: Dict[str, Dict[str, Any]] = {}
         self.realized_dims: Dict[str, Dict[str, float]] = {}
         self.point_offsets: Dict[str, Dict[str, np.ndarray]] = {}
+        self._children: Dict[str, List[str]] = {}
 
         for inst_id, inst in geom.instances.items():
             fr = inst["frame"]
@@ -163,11 +164,45 @@ class AssemblyState:
             self.realized_dims[inst_id] = dict(proto.get("dims", {}))
             self.point_offsets[inst_id] = {}
 
+        for inst_id, inst in geom.instances.items():
+            parent = inst.get("frame", {}).get("parent")
+            if parent and parent != "world" and parent in geom.instances:
+                self._children.setdefault(parent, []).append(inst_id)
+
     def get_transform(self, inst_id: str) -> Dict[str, Any]:
         return self.transforms.get(inst_id, {"origin": np.zeros(3), "rpy_deg": [0, 0, 0]})
 
     def set_transform(self, inst_id: str, origin: np.ndarray, rpy_deg: List[float]):
-        self.transforms[inst_id] = {"origin": np.array(origin, dtype=float), "rpy_deg": list(rpy_deg)}
+        old_tr = self.get_transform(inst_id)
+        r_old = rpy_to_rotation_matrix(*old_tr["rpy_deg"])
+        t_old = np.array(old_tr["origin"], dtype=float)
+
+        r_new = rpy_to_rotation_matrix(*rpy_deg)
+        t_new = np.array(origin, dtype=float)
+
+        r_delta = r_new @ r_old.T
+        t_delta = t_new - r_delta @ t_old
+
+        self.transforms[inst_id] = {"origin": t_new, "rpy_deg": list(rpy_deg)}
+
+        queue = list(self._children.get(inst_id, []))
+        visited = {inst_id}
+        while queue:
+            child_id = queue.pop(0)
+            if child_id in visited:
+                continue
+            visited.add(child_id)
+
+            child_old = self.get_transform(child_id)
+            r_c_old = rpy_to_rotation_matrix(*child_old["rpy_deg"])
+            t_c_old = np.array(child_old["origin"], dtype=float)
+
+            r_c_new = r_delta @ r_c_old
+            t_c_new = r_delta @ t_c_old + t_delta
+            rpy_c_new = rotation_matrix_to_rpy_deg(r_c_new)
+
+            self.transforms[child_id] = {"origin": t_c_new, "rpy_deg": rpy_c_new}
+            queue.extend(self._children.get(child_id, []))
 
     def get_realized_dims(self, inst_id: str) -> Dict[str, float]:
         return self.realized_dims.get(inst_id, {})
