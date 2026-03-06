@@ -118,6 +118,8 @@ class GeometryModel:
         feats = proto.get("features", {})
         refs.extend([f"points.{k}" for k in feats.get("points", {}).keys()])
         refs.extend([f"edges.{k}.mid" for k in feats.get("edges", {}).keys()])
+        refs.extend([f"lines.{k}.p0" for k in feats.get("lines", {}).keys()])
+        refs.extend([f"lines.{k}.p1" for k in feats.get("lines", {}).keys()])
         if "points" in feats and all(k in feats["points"] for k in ["A", "B", "C", "D"]):
             refs.append("face.center")
         return refs
@@ -268,6 +270,17 @@ def _get_local_point_from_ref_with_dims(
         else:
             t_param = 0.0
         return (1.0 - t_param) * p0 + t_param * p1
+    if tokens[0] == "lines":
+        line_name = tokens[1]
+        line = feats["lines"][line_name]
+        if len(tokens) < 3 or tokens[2] not in ("p0", "p1"):
+            raise ValueError(f"Unsupported line ref: {ref}")
+        pref = str(line[tokens[2]])
+        pref_tokens = pref.split(".")
+        if len(pref_tokens) < 2 or pref_tokens[0] != "points":
+            raise ValueError(f"line endpoint must reference points.<name>, got: {pref}")
+        pname = pref_tokens[1]
+        return scale_point(np.array(feats["points"][pname], dtype=float)) + point_offsets.get(pname, np.zeros(3, dtype=float))
     if tokens[0] == "face" and tokens[1] == "center":
         corners = []
         for k in ("A", "B", "C", "D"):
@@ -295,6 +308,12 @@ def get_world_point(geom: GeometryModel, state: AssemblyState, inst_id: str, ref
         if len(endpoints) >= 2:
             t_param = 0.5 if len(tokens) >= 3 and tokens[2] == "mid" else float(tokens[2][2:]) if len(tokens) >= 3 and tokens[2].startswith("t=") else 0.0
             local = local + (1.0 - t_param) * state.get_point_offset(inst_id, endpoints[0]) + t_param * state.get_point_offset(inst_id, endpoints[1])
+    elif len(tokens) >= 3 and tokens[0] == "lines":
+        line = feats.get("lines", {}).get(tokens[1], {})
+        pref = str(line.get(tokens[2], ""))
+        pref_tokens = pref.split(".")
+        if len(pref_tokens) >= 2 and pref_tokens[0] == "points":
+            local = local + state.get_point_offset(inst_id, pref_tokens[1])
     elif tokens[0] == "face" and len(tokens) >= 2 and tokens[1] == "center":
         corners = [k for k in ("A", "B", "C", "D") if k in feats.get("points", {})]
         if corners:

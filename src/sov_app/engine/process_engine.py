@@ -88,6 +88,8 @@ class ProcessEngine:
             self._apply_variation(step, state)
         elif op == "fitup_array_attach":
             self._fitup_array_attach(step, state)
+        elif op == "fitup_attach_to_marking_line":
+            self._fitup_attach_to_marking_line(step, state)
         elif op == "welding_distortion":
             self._welding_distortion(step, state)
         elif op == "fitup_pair_chain":
@@ -125,10 +127,21 @@ class ProcessEngine:
             if bool(model.get("per_point_xy_noise", False)):
                 proto = self.geom.get_prototype(self.geom.get_instance(inst_id).get("prototype", ""))
                 pts = list(proto.get("features", {}).get("points", {}).keys())
+                line_endpoints = set()
+                for line in proto.get("features", {}).get("lines", {}).values():
+                    if not isinstance(line, dict):
+                        continue
+                    for key in ("p0", "p1"):
+                        ref = str(line.get(key, ""))
+                        toks = ref.split(".")
+                        if len(toks) >= 2 and toks[0] == "points":
+                            line_endpoints.add(toks[1])
                 dist_x = model.get("point_dx", 0.0)
                 dist_y = model.get("point_dy", 0.0)
                 dist_z = model.get("point_dz", 0.0)
                 for pnm in pts:
+                    if is_cutting_step and pnm in line_endpoints:
+                        continue
                     state.set_point_offset(inst_id, pnm, np.array([self._sample(dist_x), self._sample(dist_y), self._sample(dist_z)], dtype=float))
 
             if is_cutting_step:
@@ -245,6 +258,61 @@ class ProcessEngine:
                 state.add_point_offset(gid, upper_v, dz_local)
 
             point_offsets_applied_guests.add(gid)
+
+    def _fitup_attach_to_marking_line(self, step: Dict[str, Any], state: AssemblyState):
+        base = step.get("base", {})
+        guest = step.get("guest", {})
+        if not isinstance(base, dict) or not isinstance(guest, dict):
+            raise ValueError("fitup_attach_to_marking_line requires /steps/N/base and /steps/N/guest as dict.")
+
+        base_id = base["instance"]
+        guest_id = guest["instance"]
+        mark_line = base.get("mark_line", {})
+        ref_line = guest.get("ref_line", {})
+        if not isinstance(mark_line, dict) or not isinstance(ref_line, dict):
+            raise ValueError("fitup_attach_to_marking_line requires base.mark_line and guest.ref_line.")
+
+        base_p0 = str(mark_line["p0"])
+        base_p1 = str(mark_line["p1"])
+        guest_q0 = str(ref_line["p0"])
+        guest_q1 = str(ref_line["p1"])
+
+        p0 = get_world_point(self.geom, state, base_id, base_p0)
+        p1 = get_world_point(self.geom, state, base_id, base_p1)
+        q0 = get_world_point(self.geom, state, guest_id, guest_q0)
+        q1 = get_world_point(self.geom, state, guest_id, guest_q1)
+
+        target_vec = p1 - p0
+        guest_vec = q1 - q0
+        target_len = float(np.linalg.norm(target_vec))
+        guest_len = float(np.linalg.norm(guest_vec))
+        if target_len < 1e-12 or guest_len < 1e-12:
+            raise ValueError("fitup_attach_to_marking_line requires non-zero base/guest reference lines.")
+
+        u_guest = guest_vec / guest_len
+        u_target = target_vec / target_len
+        cross = np.cross(u_guest, u_target)
+        cross_norm = float(np.linalg.norm(cross))
+        dot = float(np.clip(np.dot(u_guest, u_target), -1.0, 1.0))
+        if cross_norm < 1e-12:
+            if dot < 0.0:
+                fallback = self._safe_unit_from_cross(u_guest, np.array([1.0, 0.0, 0.0], dtype=float), np.array([0.0, 1.0, 0.0], dtype=float))
+                r_delta = self._rotation_matrix_from_axis_angle(fallback, np.pi)
+            else:
+                r_delta = np.eye(3, dtype=float)
+        else:
+            axis = cross / cross_norm
+            theta = float(np.arctan2(cross_norm, dot))
+            r_delta = self._rotation_matrix_from_axis_angle(axis, theta)
+
+        gtr = state.get_transform(guest_id)
+        origin_old = np.array(gtr["origin"], dtype=float)
+        r_old = rpy_to_rotation_matrix(*gtr["rpy_deg"])
+        q0_local = r_old.T @ (q0 - origin_old)
+        r_new = r_delta @ r_old
+        origin_new = p0 - r_new @ q0_local
+        rpy_new = rotation_matrix_to_rpy_deg(r_new)
+        state.set_transform(guest_id, origin_new, rpy_new)
 
     def _welding_distortion(self, step: Dict[str, Any], state: AssemblyState):
         model = step.get("model", {})
