@@ -73,7 +73,7 @@ def test_recompute_realized_dims_uses_local_components_with_rotation() -> None:
     assert dims["L_ab"] == 101.0
     assert dims["L_dc"] == 101.0
     assert dims["H_ad"] == 55.0
-    assert dims["H_bc"] == 52.0
+    assert dims["H_bc"] == pytest.approx(52.0)
     assert dims["L"] == 101.0
     assert dims["H"] == 53.5
 

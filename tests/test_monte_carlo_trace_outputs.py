@@ -25,7 +25,7 @@ def test_monte_carlo_trace_outputs_are_generated(tmp_path: Path) -> None:
     assert mc_results.exists()
     assert "trial" in results.columns
 
-    trace_files = sorted(tmp_path.glob("mc_trace_*__vertices.csv"))
+    trace_files = sorted(p for p in tmp_path.glob("mc_trace_*__vertices.csv") if not p.name.startswith("mc_trace_worst_"))
     assert len(trace_files) == len(flow.steps)
 
     required_cols = {
