@@ -10,10 +10,16 @@ from sov_app.engine.process_engine import ProcessEngine
 
 
 MIN_CSV = Path("data/model_min_marking_attach.csv")
+MIN_BUTT_SHRINK_CSV = Path("data/model_min_marking_attach_butt_shrink.csv")
 
 
 def _load_models() -> tuple[GeometryModel, FlowModel]:
     geom_dict, flow_dict = load_data_from_csv(MIN_CSV)
+    return GeometryModel(geom_dict), FlowModel(flow_dict)
+
+
+def _load_butt_shrink_models() -> tuple[GeometryModel, FlowModel]:
+    geom_dict, flow_dict = load_data_from_csv(MIN_BUTT_SHRINK_CSV)
     return GeometryModel(geom_dict), FlowModel(flow_dict)
 
 
@@ -117,3 +123,50 @@ def test_existing_fitup_pair_chain_still_operates() -> None:
     q1 = get_world_point(geom, state, "G1", "points.D")
     assert np.isfinite(q0).all()
     assert np.isfinite(q1).all()
+
+
+def test_marking_line_butt_shrinkage_is_applied_via_welding_distortion_flow_step() -> None:
+    geom, flow = _load_butt_shrink_models()
+    assert [step["op"] for step in flow.steps] == ["fitup_pair_chain", "fitup_pair_chain", "welding_distortion"]
+
+    state_fitup = AssemblyState(geom)
+    engine_fitup = ProcessEngine(geom, flow, np.random.default_rng(0))
+    engine_fitup.apply_steps(state_fitup, steps_mask=[True, True, False])
+
+    fitup_metric = state_fitup.butt_fitup_metrics["fitup_pair1"][0]
+    s0 = 0.18 * max(float(fitup_metric["g_real_0"]), 0.0)
+    s1 = 0.18 * max(float(fitup_metric["g_real_1"]), 0.0)
+    v = np.array(fitup_metric["transverse_dir_world"], dtype=float)
+    v /= np.linalg.norm(v)
+    expected_ab = -s0 * v
+    expected_cd = -s1 * v
+
+    l_dists = [float(step["model"]["butt_fitup"]["L_dist"]) for step in flow.steps[:2]]
+    assert l_dists == [4.0, 1.0]
+    assert l_dists[0] != pytest.approx(float(np.linalg.norm(expected_ab)))
+    assert l_dists[1] != pytest.approx(float(np.linalg.norm(expected_cd)))
+
+    state_full = AssemblyState(geom)
+    engine_full = ProcessEngine(geom, flow, np.random.default_rng(0))
+    engine_full.apply_steps(state_full)
+
+    def _delta(instance: str, ref: str) -> np.ndarray:
+        return get_world_point(geom, state_full, instance, ref) - get_world_point(geom, state_fitup, instance, ref)
+
+    ab_a = _delta("G1", "points.A")
+    ab_b = _delta("G1", "points.B")
+    ab_mk = _delta("G1", "points.MK_AB")
+    cd_c = _delta("G1", "points.C")
+    cd_d = _delta("G1", "points.D")
+    cd_mk = _delta("G1", "points.MK_CD")
+    mid = _delta("G1", "points.MID")
+
+    assert np.allclose(ab_a, expected_ab, atol=1e-8)
+    assert np.allclose(ab_b, expected_ab, atol=1e-8)
+    assert np.allclose(ab_mk, expected_ab, atol=1e-8)
+
+    assert np.allclose(cd_c, expected_cd, atol=1e-8)
+    assert np.allclose(cd_d, expected_cd, atol=1e-8)
+    assert np.allclose(cd_mk, expected_cd, atol=1e-8)
+
+    assert np.allclose(mid, np.zeros(3, dtype=float), atol=1e-8)
