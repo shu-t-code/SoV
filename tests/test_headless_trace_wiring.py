@@ -65,6 +65,7 @@ def test_headless_smoke_results_writes_trace_files_when_enabled(tmp_path: Path) 
         assert (tmp_path / f"mc_trace_{step}__vertices.csv").exists()
         assert (tmp_path / f"mc_trace_worst_{step}__vertices.csv").exists()
 
-    assert len(list(tmp_path.glob("mc_trace_*__vertices.csv"))) == len(expected)
+    trace_files = [p for p in tmp_path.glob("mc_trace_*__vertices.csv") if not p.name.startswith("mc_trace_worst_")]
+    assert len(trace_files) == len(expected)
     assert len(list(tmp_path.glob("mc_trace_worst_*__vertices.csv"))) == len(expected)
     assert (tmp_path / "mc_worstcase_summary.csv").exists()
