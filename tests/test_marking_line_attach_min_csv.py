@@ -133,10 +133,13 @@ def test_marking_line_butt_shrinkage_is_applied_via_welding_distortion_flow_step
     engine_fitup = ProcessEngine(geom, flow, np.random.default_rng(0))
     engine_fitup.apply_steps(state_fitup, steps_mask=[True, True, False])
 
-    fitup_metric = state_fitup.butt_fitup_metrics["fitup_pair1"][0]
-    s0 = 0.18 * max(float(fitup_metric["g_real_0"]), 0.0)
-    s1 = 0.18 * max(float(fitup_metric["g_real_1"]), 0.0)
-    v = np.array(fitup_metric["transverse_dir_world"], dtype=float)
+    fitup_metrics = state_fitup.butt_fitup_metrics
+    pair0_metric = fitup_metrics["fitup_pair0"][0]
+    pair1_metric = fitup_metrics["fitup_pair1"][0]
+
+    s0 = 0.18 * max(float(pair0_metric["g_real_0"]), 0.0)
+    s1 = 0.18 * max(float(pair1_metric["g_real_0"]), 0.0)
+    v = np.array(pair0_metric["transverse_dir_world"], dtype=float)
     v /= np.linalg.norm(v)
     expected_ab = -s0 * v
     expected_cd = -s1 * v

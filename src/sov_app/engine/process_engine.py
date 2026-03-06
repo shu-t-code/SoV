@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Callable, Dict, List
 
 import numpy as np
@@ -265,36 +266,22 @@ class ProcessEngine:
         if not isinstance(metrics_by_step, dict):
             return
 
-        guest_metric = None
-        unbound_metrics: List[Dict[str, Any]] = []
-        for metrics in metrics_by_step.values():
+        matched_metrics: List[tuple[str, Dict[str, Any]]] = []
+        unbound_metrics: List[tuple[str, Dict[str, Any]]] = []
+        for step_id, metrics in metrics_by_step.items():
             if not isinstance(metrics, list):
                 continue
             for metric in metrics:
                 if not isinstance(metric, dict):
                     continue
                 if metric.get("guest_instance") == inst_id:
-                    guest_metric = metric
+                    matched_metrics.append((str(step_id), metric))
                 elif metric.get("guest_instance") in (None, ""):
-                    unbound_metrics.append(metric)
+                    unbound_metrics.append((str(step_id), metric))
 
-        metric = guest_metric
-        if metric is None and len(unbound_metrics) == 1:
-            metric = unbound_metrics[0]
-        if not isinstance(metric, dict):
-            return
-
-        v_world = np.array(metric.get("transverse_dir_world", []), dtype=float)
-        if v_world.shape != (3,):
-            return
-        v_norm = float(np.linalg.norm(v_world))
-        if v_norm < 1e-12:
-            return
-        v_world = v_world / v_norm
-
-        s0 = 0.18 * max(float(metric.get("g_real_0", metric.get("g_real", 0.0)) or 0.0), 0.0)
-        s1 = 0.18 * max(float(metric.get("g_real_1", metric.get("g_real", 0.0)) or 0.0), 0.0)
-        if s0 <= 0.0 and s1 <= 0.0:
+        if not matched_metrics and len(unbound_metrics) == 1:
+            matched_metrics = [unbound_metrics[0]]
+        if not matched_metrics:
             return
 
         proto = self.geom.get_prototype(self.geom.get_instance(inst_id).get("prototype", ""))
@@ -309,14 +296,44 @@ class ProcessEngine:
         lower_points = [name for name, xyz in points.items() if abs(float(xyz[1]) - y_ab) <= tol]
         upper_points = [name for name, xyz in points.items() if abs(float(xyz[1]) - y_cd) <= tol]
 
-        if s0 > 0.0:
-            d0_local = self._world_vec_to_local(inst_id, state, (-s0) * v_world)
-            for pname in lower_points:
-                state.add_point_offset(inst_id, pname, d0_local)
-        if s1 > 0.0:
-            d1_local = self._world_vec_to_local(inst_id, state, (-s1) * v_world)
-            for pname in upper_points:
-                state.add_point_offset(inst_id, pname, d1_local)
+        def _shrinkage_from_gap(raw_gap: Any) -> float:
+            if raw_gap is None:
+                return 0.0
+            return 0.18 * max(float(raw_gap or 0.0), 0.0)
+
+        for step_id, metric in matched_metrics:
+            v_world = np.array(metric.get("transverse_dir_world", []), dtype=float)
+            if v_world.shape != (3,):
+                continue
+            v_norm = float(np.linalg.norm(v_world))
+            if v_norm < 1e-12:
+                continue
+            v_world = v_world / v_norm
+
+            pair_match = re.search(r"pair(\d+)$", step_id)
+            pair_index = int(pair_match.group(1)) if pair_match else None
+
+            if pair_index in (0, 1):
+                s = _shrinkage_from_gap(metric.get("g_real_0", metric.get("g_real", 0.0)))
+                if s <= 0.0:
+                    continue
+                target_points = lower_points if pair_index == 0 else upper_points
+                d_local = self._world_vec_to_local(inst_id, state, (-s) * v_world)
+                for pname in target_points:
+                    state.add_point_offset(inst_id, pname, d_local)
+                continue
+
+            s0 = _shrinkage_from_gap(metric.get("g_real_0", metric.get("g_real", 0.0)))
+            s1 = _shrinkage_from_gap(metric.get("g_real_1"))
+
+            if s0 > 0.0:
+                d0_local = self._world_vec_to_local(inst_id, state, (-s0) * v_world)
+                for pname in lower_points:
+                    state.add_point_offset(inst_id, pname, d0_local)
+            if s1 > 0.0:
+                d1_local = self._world_vec_to_local(inst_id, state, (-s1) * v_world)
+                for pname in upper_points:
+                    state.add_point_offset(inst_id, pname, d1_local)
 
     def _fitup_attach_to_marking_line(self, step: Dict[str, Any], state: AssemblyState):
         base = step.get("base", {})
