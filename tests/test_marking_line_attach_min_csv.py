@@ -10,6 +10,7 @@ from sov_app.engine.process_engine import ProcessEngine
 
 
 MIN_CSV = Path("data/model_min_marking_attach.csv")
+BUTT_MIN_CSV = Path("data/model_min_marking_attach_butt_shrink.csv")
 
 
 def _load_models() -> tuple[GeometryModel, FlowModel]:
@@ -117,3 +118,44 @@ def test_existing_fitup_pair_chain_still_operates() -> None:
     q1 = get_world_point(geom, state, "G1", "points.D")
     assert np.isfinite(q0).all()
     assert np.isfinite(q1).all()
+
+
+def test_min_csv_butt_transverse_shrinkage_moves_ab_cd_and_marking_points_independently() -> None:
+    g0 = 4.0
+    g1 = 1.0
+    s0 = 0.18 * max(g0, 0.0)
+    s1 = 0.18 * max(g1, 0.0)
+
+    geom_dict, flow_dict = load_data_from_csv(BUTT_MIN_CSV)
+    geom = GeometryModel(geom_dict)
+    flow = FlowModel(flow_dict)
+    state = AssemblyState(geom)
+    engine = ProcessEngine(geom, flow, np.random.default_rng(0))
+
+    ab_before = get_world_point(geom, state, "AB", "points.A")
+    mk_ab_before = get_world_point(geom, state, "AB", "points.MK_AB")
+    cd_before = get_world_point(geom, state, "CD", "points.A")
+    mk_cd_before = get_world_point(geom, state, "CD", "points.MK_CD")
+    mid_before = get_world_point(geom, state, "MID", "points.A")
+
+    engine.apply_steps(state)
+
+    ab_after = get_world_point(geom, state, "AB", "points.A")
+    mk_ab_after = get_world_point(geom, state, "AB", "points.MK_AB")
+    cd_after = get_world_point(geom, state, "CD", "points.A")
+    mk_cd_after = get_world_point(geom, state, "CD", "points.MK_CD")
+    mid_after = get_world_point(geom, state, "MID", "points.A")
+
+    ab_disp = ab_after - ab_before
+    mk_ab_disp = mk_ab_after - mk_ab_before
+    cd_disp = cd_after - cd_before
+    mk_cd_disp = mk_cd_after - mk_cd_before
+
+    assert np.allclose(ab_disp, np.array([-s0, 0.0, 0.0], dtype=float), atol=1e-8)
+    assert np.allclose(mk_ab_disp, np.array([-s0, 0.0, 0.0], dtype=float), atol=1e-8)
+
+    assert np.allclose(cd_disp, np.array([-s1, 0.0, 0.0], dtype=float), atol=1e-8)
+    assert np.allclose(mk_cd_disp, np.array([-s1, 0.0, 0.0], dtype=float), atol=1e-8)
+
+    assert not np.isclose(abs(ab_disp[0]), abs(cd_disp[0]))
+    assert np.allclose(mid_after - mid_before, np.zeros(3, dtype=float), atol=1e-8)
