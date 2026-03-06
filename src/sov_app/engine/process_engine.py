@@ -92,6 +92,8 @@ class ProcessEngine:
             self._welding_distortion(step, state)
         elif op == "fitup_pair_chain":
             self._fitup_pair_chain(step, state)
+        elif op == "fitup_attach_to_marking_line":
+            self._fitup_attach_to_marking_line(step, state)
 
     def apply_steps(
         self,
@@ -256,6 +258,70 @@ class ProcessEngine:
             o[2] += self._sample(model.get("outplane_dz", 0.0))
             rpy[0] += self._sample(model.get("weak_bending_about_x", 0.0))
             state.set_transform(inst_id, o, rpy)
+
+    def _fitup_attach_to_marking_line(self, step: Dict[str, Any], state: AssemblyState):
+        base = step.get("base", {})
+        guest = step.get("guest", {})
+        if not isinstance(base, dict) or not isinstance(guest, dict):
+            raise ValueError("fitup_attach_to_marking_line requires /steps/N/base and /steps/N/guest as dict.")
+
+        base_id = str(base.get("instance", ""))
+        guest_id = str(guest.get("instance", ""))
+        if not base_id or not guest_id:
+            raise ValueError("fitup_attach_to_marking_line requires base.instance and guest.instance")
+        if base_id not in self.geom.instances:
+            raise ValueError(f"Unknown base instance: {base_id}")
+        if guest_id not in self.geom.instances:
+            raise ValueError(f"Unknown guest instance: {guest_id}")
+
+        mark_line = base.get("mark_line", {})
+        ref_line = guest.get("ref_line", {})
+        if not isinstance(mark_line, dict) or not isinstance(ref_line, dict):
+            raise ValueError("fitup_attach_to_marking_line requires base.mark_line and guest.ref_line as dict.")
+
+        base_p0 = str(mark_line.get("p0", ""))
+        base_p1 = str(mark_line.get("p1", ""))
+        guest_q0 = str(ref_line.get("p0", ""))
+        guest_q1 = str(ref_line.get("p1", ""))
+        if not all((base_p0, base_p1, guest_q0, guest_q1)):
+            raise ValueError("fitup_attach_to_marking_line requires p0/p1 for both base.mark_line and guest.ref_line")
+
+        p0 = get_world_point(self.geom, state, base_id, base_p0)
+        p1 = get_world_point(self.geom, state, base_id, base_p1)
+        q0 = get_world_point(self.geom, state, guest_id, guest_q0)
+        q1 = get_world_point(self.geom, state, guest_id, guest_q1)
+
+        base_dir = self._unit(p1 - p0)
+        guest_dir = self._unit(q1 - q0)
+        if float(np.linalg.norm(base_dir)) < 1e-12 or float(np.linalg.norm(guest_dir)) < 1e-12:
+            raise ValueError("fitup_attach_to_marking_line requires non-degenerate mark_line/ref_line")
+
+        axis = np.cross(guest_dir, base_dir)
+        axis_norm = float(np.linalg.norm(axis))
+        dot = float(np.clip(np.dot(guest_dir, base_dir), -1.0, 1.0))
+        if axis_norm < 1e-12:
+            if dot < 0.0:
+                fallback = np.array([1.0, 0.0, 0.0], dtype=float)
+                if abs(float(np.dot(guest_dir, fallback))) > 0.99:
+                    fallback = np.array([0.0, 1.0, 0.0], dtype=float)
+                axis = self._safe_unit_from_cross(guest_dir, fallback, np.array([0.0, 0.0, 1.0], dtype=float))
+                theta = float(np.pi)
+            else:
+                axis = np.array([0.0, 0.0, 1.0], dtype=float)
+                theta = 0.0
+        else:
+            axis = axis / axis_norm
+            theta = float(np.arccos(dot))
+
+        tr = state.get_transform(guest_id)
+        origin_old = np.array(tr["origin"], dtype=float)
+        r_old = rpy_to_rotation_matrix(*tr["rpy_deg"])
+        q0_local = r_old.T @ (q0 - origin_old)
+
+        r_delta = self._rotation_matrix_from_axis_angle(axis, theta)
+        r_new = r_delta @ r_old
+        origin_new = p0 - r_new @ q0_local
+        state.set_transform(guest_id, origin_new, rotation_matrix_to_rpy_deg(r_new))
 
     def _fitup_pair_chain(self, step: Dict[str, Any], state: AssemblyState):
         model = step.get("model", {})
