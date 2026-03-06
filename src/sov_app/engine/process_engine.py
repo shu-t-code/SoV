@@ -258,6 +258,65 @@ class ProcessEngine:
             o[2] += self._sample(model.get("outplane_dz", 0.0))
             rpy[0] += self._sample(model.get("weak_bending_about_x", 0.0))
             state.set_transform(inst_id, o, rpy)
+            self._apply_butt_transverse_shrinkage(inst_id, state)
+
+    def _apply_butt_transverse_shrinkage(self, inst_id: str, state: AssemblyState):
+        metrics_by_step = getattr(state, "butt_fitup_metrics", None)
+        if not isinstance(metrics_by_step, dict):
+            return
+
+        guest_metric = None
+        unbound_metrics: List[Dict[str, Any]] = []
+        for metrics in metrics_by_step.values():
+            if not isinstance(metrics, list):
+                continue
+            for metric in metrics:
+                if not isinstance(metric, dict):
+                    continue
+                if metric.get("guest_instance") == inst_id:
+                    guest_metric = metric
+                elif metric.get("guest_instance") in (None, ""):
+                    unbound_metrics.append(metric)
+
+        metric = guest_metric
+        if metric is None and len(unbound_metrics) == 1:
+            metric = unbound_metrics[0]
+        if not isinstance(metric, dict):
+            return
+
+        v_world = np.array(metric.get("transverse_dir_world", []), dtype=float)
+        if v_world.shape != (3,):
+            return
+        v_norm = float(np.linalg.norm(v_world))
+        if v_norm < 1e-12:
+            return
+        v_world = v_world / v_norm
+
+        s0 = 0.18 * max(float(metric.get("g_real_0", metric.get("g_real", 0.0)) or 0.0), 0.0)
+        s1 = 0.18 * max(float(metric.get("g_real_1", metric.get("g_real", 0.0)) or 0.0), 0.0)
+        if s0 <= 0.0 and s1 <= 0.0:
+            return
+
+        proto = self.geom.get_prototype(self.geom.get_instance(inst_id).get("prototype", ""))
+        points = proto.get("features", {}).get("points", {})
+        if not all(name in points for name in ("A", "B", "C", "D")):
+            return
+
+        y_ab = 0.5 * (float(points["A"][1]) + float(points["B"][1]))
+        y_cd = 0.5 * (float(points["C"][1]) + float(points["D"][1]))
+        tol = 1e-9
+
+        lower_points = [name for name, xyz in points.items() if abs(float(xyz[1]) - y_ab) <= tol]
+        upper_points = [name for name, xyz in points.items() if abs(float(xyz[1]) - y_cd) <= tol]
+
+        if s0 > 0.0:
+            d0_local = self._world_vec_to_local(inst_id, state, (-s0) * v_world)
+            for pname in lower_points:
+                state.add_point_offset(inst_id, pname, d0_local)
+        if s1 > 0.0:
+            d1_local = self._world_vec_to_local(inst_id, state, (-s1) * v_world)
+            for pname in upper_points:
+                state.add_point_offset(inst_id, pname, d1_local)
 
     def _fitup_attach_to_marking_line(self, step: Dict[str, Any], state: AssemblyState):
         base = step.get("base", {})
@@ -447,6 +506,8 @@ class ProcessEngine:
                         state.set_transform(guest_id, origin_new, rpy_new)
 
                 metric_entry: Dict[str, Any] = {
+                    "guest_instance": guest_id,
+                    "transverse_dir_world": v.tolist(),
                     "w": pair0["w"],
                     "w0": float(w0_model),
                     "L": pair0["L"],
