@@ -57,8 +57,8 @@ def test_fillet_fitup_array_attach_uses_independent_x_distributions_for_lower_an
     state = AssemblyState(geom)
     engine = ProcessEngine(geom, flow, np.random.default_rng(0))
 
-    # dm_a, dm_b, then (x_lower, x_upper, z_lower) for each of the 2 lower/upper pairs.
-    samples = [1.0, 2.0, 10.0, 30.0, 0.0, 11.0, 31.0, 0.0]
+    # delta_y once per guest, then dm_a/dm_b, then (x_lower, x_upper, z_lower) for each pair.
+    samples = [0.0, 1.0, 2.0, 10.0, 30.0, 0.0, 11.0, 31.0, 0.0]
     engine._sample = lambda spec: samples.pop(0)
 
     engine.apply_steps(state)
