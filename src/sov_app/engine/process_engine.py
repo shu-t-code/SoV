@@ -407,7 +407,9 @@ class ProcessEngine:
                 v = self._safe_unit_from_cross(n, u, np.array([0.0, 1.0, 0.0], dtype=float))
 
                 pair0 = _sample_pair_fitup()
-                pair1 = _sample_pair_fitup() if guest_q1 else None
+                # q0/q1 must be satisfied by one rigid-body transform, so both targets
+                # use the same in-plane offset along v.
+                pair1 = dict(pair0) if guest_q1 else None
 
                 if guest_id not in delta_y_applied_guests:
                     gtr = state.get_transform(guest_id)
