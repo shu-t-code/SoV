@@ -34,6 +34,15 @@ class ProcessEngine:
                 return int(match.group(1))
         return None
 
+    def _extract_realized_gap(self, metric: Dict[str, Any], *keys: str) -> float:
+        for key in keys:
+            if key in metric and metric.get(key) is not None:
+                try:
+                    return float(metric.get(key))
+                except (TypeError, ValueError):
+                    continue
+        return 0.0
+
     def _sample(self, spec: Any) -> float:
         return DistributionSampler.sample(spec, self.rng, self.flow.dists)
 
@@ -312,7 +321,7 @@ class ProcessEngine:
 
         for pair_metric, pair_index in selected_metrics:
             if pair_index == 0:
-                g_real = float(pair_metric.get("g_real_0", pair_metric.get("g_real", 0.0)) or 0.0)
+                g_real = self._extract_realized_gap(pair_metric, "g_real_0", "g_real_1", "g_real")
                 shrink = 0.18 * max(g_real, 0.0)
                 if shrink <= 0.0:
                     continue
@@ -322,7 +331,7 @@ class ProcessEngine:
                 continue
 
             if pair_index == 1:
-                g_real = float(pair_metric.get("g_real_1", pair_metric.get("g_real", 0.0)) or 0.0)
+                g_real = self._extract_realized_gap(pair_metric, "g_real_1", "g_real_0", "g_real")
                 shrink = 0.18 * max(g_real, 0.0)
                 if shrink <= 0.0:
                     continue
@@ -331,8 +340,8 @@ class ProcessEngine:
                     state.add_point_offset(inst_id, pname, d_local)
                 continue
 
-            s0 = 0.18 * max(float(pair_metric.get("g_real_0", pair_metric.get("g_real", 0.0)) or 0.0), 0.0)
-            s1 = 0.18 * max(float(pair_metric.get("g_real_1", pair_metric.get("g_real", 0.0)) or 0.0), 0.0)
+            s0 = 0.18 * max(self._extract_realized_gap(pair_metric, "g_real_0", "g_real_1", "g_real"), 0.0)
+            s1 = 0.18 * max(self._extract_realized_gap(pair_metric, "g_real_1", "g_real_0", "g_real"), 0.0)
 
             if s0 > 0.0:
                 d0_local = np.array([-s0, 0.0, 0.0], dtype=float)

@@ -211,6 +211,9 @@ def test_marking_line_butt_shrinkage_is_applied_via_welding_distortion_flow_step
     pair1_metric = fitup_with_weld.butt_fitup_metrics["fitup_pair1"][0]
     assert pair0_metric["pair_index"] == 0
     assert pair1_metric["pair_index"] == 1
+    assert pair0_metric["g_real_0"] == pytest.approx(4.0)
+    assert pair1_metric["g_real_0"] == pytest.approx(1.0)
+    assert pair1_metric["g_real_1"] is None
 
     delta_a = fitup_with_weld.get_point_offset("G1", "A") - fitup_only.get_point_offset("G1", "A")
     delta_b = fitup_with_weld.get_point_offset("G1", "B") - fitup_only.get_point_offset("G1", "B")
