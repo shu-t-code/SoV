@@ -117,3 +117,120 @@ def test_existing_fitup_pair_chain_still_operates() -> None:
     q1 = get_world_point(geom, state, "G1", "points.D")
     assert np.isfinite(q0).all()
     assert np.isfinite(q1).all()
+
+
+def test_marking_line_butt_shrinkage_is_applied_via_welding_distortion_flow_step() -> None:
+    geom = GeometryModel(
+        {
+            "prototypes": [
+                {
+                    "id": "plate_with_marks",
+                    "dims": {"L": 200.0, "H": 100.0, "t": 10.0},
+                    "features": {
+                        "points": {
+                            "A": [0.0, 0.0, 0.0],
+                            "B": [200.0, 0.0, 0.0],
+                            "C": [200.0, 100.0, 0.0],
+                            "D": [0.0, 100.0, 0.0],
+                            "MK_AB": [120.0, 0.0, 0.0],
+                            "MK_CD": [40.0, 100.0, 0.0],
+                            "MID": [100.0, 50.0, 0.0],
+                        }
+                    },
+                }
+            ],
+            "instances": [
+                {"id": "BASE", "prototype": "plate_with_marks", "frame": {"parent": "world", "origin": [0.0, 0.0, 0.0], "rpy_deg": [0.0, 0.0, 0.0]}},
+                {"id": "G1", "prototype": "plate_with_marks", "frame": {"parent": "world", "origin": [0.0, 0.0, 0.0], "rpy_deg": [0.0, 0.0, 0.0]}},
+            ],
+        }
+    )
+    flow = FlowModel(
+        {
+            "selectors": {"GUEST": {"ids": ["G1"]}},
+            "steps": [
+                {
+                    "id": "fitup_pair0",
+                    "op": "fitup_pair_chain",
+                    "base": {"instance": "BASE", "p0": "points.A", "p1": "points.B"},
+                    "guest": {"instance": "G1", "q0": "points.A"},
+                    "model": {
+                        "butt_fitup": {
+                            "d_nom": 10.0,
+                            "g0": 4.0,
+                            "w0": 20.0,
+                            "L_dist": {"type": "Fixed", "value": 4.0},
+                            "eps_mA": {"type": "Fixed", "value": 0.0},
+                            "eps_mB": {"type": "Fixed", "value": 0.0},
+                            "eps_cA": {"type": "Fixed", "value": 0.0},
+                            "eps_cB": {"type": "Fixed", "value": 0.0},
+                            "delta_y": {"type": "Fixed", "value": 0.0},
+                        }
+                    },
+                },
+                {
+                    "id": "fitup_pair1",
+                    "op": "fitup_pair_chain",
+                    "base": {"instance": "BASE", "p0": "points.C", "p1": "points.D"},
+                    "guest": {"instance": "G1", "q0": "points.C"},
+                    "model": {
+                        "butt_fitup": {
+                            "d_nom": 10.0,
+                            "g0": 1.0,
+                            "w0": 20.0,
+                            "L_dist": {"type": "Fixed", "value": 1.0},
+                            "eps_mA": {"type": "Fixed", "value": 0.0},
+                            "eps_mB": {"type": "Fixed", "value": 0.0},
+                            "eps_cA": {"type": "Fixed", "value": 0.0},
+                            "eps_cB": {"type": "Fixed", "value": 0.0},
+                            "delta_y": {"type": "Fixed", "value": 0.0},
+                        }
+                    },
+                },
+                {
+                    "id": "weld_step",
+                    "op": "welding_distortion",
+                    "target": {"selector": "GUEST"},
+                    "model": {
+                        "outplane_dz": {"type": "Fixed", "value": 0.0},
+                        "weak_bending_about_x": {"type": "Fixed", "value": 0.0},
+                    },
+                },
+            ],
+        }
+    )
+
+    fitup_only = AssemblyState(geom)
+    fitup_with_weld = AssemblyState(geom)
+    engine = ProcessEngine(geom, flow, np.random.default_rng(0))
+
+    engine.apply_steps(fitup_only, steps_mask=[True, True, False])
+    engine.apply_steps(fitup_with_weld)
+
+    pair0_metric = fitup_with_weld.butt_fitup_metrics["fitup_pair0"][0]
+    pair1_metric = fitup_with_weld.butt_fitup_metrics["fitup_pair1"][0]
+    assert pair0_metric["pair_index"] == 0
+    assert pair1_metric["pair_index"] == 1
+    assert pair0_metric["g_real_0"] == pytest.approx(4.0)
+    assert pair1_metric["g_real_0"] == pytest.approx(1.0)
+    assert pair1_metric["g_real_1"] is None
+
+    delta_a = fitup_with_weld.get_point_offset("G1", "A") - fitup_only.get_point_offset("G1", "A")
+    delta_b = fitup_with_weld.get_point_offset("G1", "B") - fitup_only.get_point_offset("G1", "B")
+    delta_mk_ab = fitup_with_weld.get_point_offset("G1", "MK_AB") - fitup_only.get_point_offset("G1", "MK_AB")
+    delta_c = fitup_with_weld.get_point_offset("G1", "C") - fitup_only.get_point_offset("G1", "C")
+    delta_d = fitup_with_weld.get_point_offset("G1", "D") - fitup_only.get_point_offset("G1", "D")
+    delta_mk_cd = fitup_with_weld.get_point_offset("G1", "MK_CD") - fitup_only.get_point_offset("G1", "MK_CD")
+    delta_mid = fitup_with_weld.get_point_offset("G1", "MID") - fitup_only.get_point_offset("G1", "MID")
+
+    expected_ab = np.array([-0.72, 0.0, 0.0], dtype=float)
+    expected_cd = np.array([-0.18, 0.0, 0.0], dtype=float)
+    expected_none = np.zeros(3, dtype=float)
+
+    assert np.allclose(delta_a, expected_ab, atol=1e-8)
+    assert np.allclose(delta_b, expected_ab, atol=1e-8)
+    assert np.allclose(delta_mk_ab, expected_ab, atol=1e-8)
+    assert np.allclose(delta_c, expected_cd, atol=1e-8)
+    assert np.allclose(delta_d, expected_cd, atol=1e-8)
+    assert np.allclose(delta_mk_cd, expected_cd, atol=1e-8)
+    assert np.allclose(delta_mid, expected_none, atol=1e-8)
