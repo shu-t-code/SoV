@@ -510,22 +510,11 @@ class ProcessEngine:
                 ref_line_points.append(ref.split(".", 1)[1])
         ref_line_points = sorted(dict.fromkeys(ref_line_points))
 
-        aux_ref_points = []
-        for name in ref_line_points:
-            if name not in all_point_names:
-                continue
-            point = proto.get("features", {}).get("points", {}).get(name)
-            if not isinstance(point, (list, tuple)) or len(point) < 3:
-                continue
-            used_elsewhere = False
-            for other_name, other_point in proto.get("features", {}).get("points", {}).items():
-                if other_name == name or not isinstance(other_point, (list, tuple)) or len(other_point) < 3:
-                    continue
-                if np.allclose(np.array(point[:3], dtype=float), np.array(other_point[:3], dtype=float), atol=1e-9):
-                    used_elsewhere = True
-                    break
-            if not used_elsewhere:
-                aux_ref_points.append(name)
+        aux_ref_points = [
+            name
+            for name in ref_line_points
+            if name in all_point_names and str(name).upper().startswith("REF_")
+        ]
 
         excluded_point_names = sorted(dict.fromkeys(aux_ref_points))
         candidate_point_names = [name for name in all_point_names if name not in excluded_point_names]
