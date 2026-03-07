@@ -292,28 +292,38 @@ def test_marking_line_attach_applies_fillet_fitup_offsets_after_set_rpy() -> Non
         }
     )
 
+    baseline_state = AssemblyState(geom)
+    baseline_engine = ProcessEngine(geom, flow, np.random.default_rng(0))
+    baseline_samples = [0.0] * 9
+    baseline_engine._sample = lambda spec: baseline_samples.pop(0)
+    baseline_engine.apply_steps(baseline_state)
+
     state = AssemblyState(geom)
     engine = ProcessEngine(geom, flow, np.random.default_rng(0))
     # delta_y, delta_mA, delta_mB, then (x_lower, x_upper, z_lower) for each lower/upper pair.
     samples = [7.0, 1.0, 2.0, 10.0, 30.0, 5.0, 11.0, 31.0, 6.0]
     engine._sample = lambda spec: samples.pop(0)
-
-    origin_before = state.get_transform("G")["origin"].copy()
     engine.apply_steps(state)
 
-    offsets = state.point_offsets["G"]
-    lower_dx = sorted(float(offsets[name][0]) for name in ("A", "B"))
-    upper_dx = sorted(float(offsets[name][0]) for name in ("C", "D"))
-    lower_dz = sorted(float(offsets[name][2]) for name in ("A", "B"))
-    upper_dz = sorted(float(offsets[name][2]) for name in ("C", "D"))
+    deltas = {
+        name: get_world_point(geom, state, "G", f"points.{name}")
+        - get_world_point(geom, baseline_state, "G", f"points.{name}")
+        for name in ("A", "B", "C", "D")
+    }
+    lower_names = sorted(("A", "B"), key=lambda name: (float(deltas[name][2]), name))
+    upper_names = sorted(("C", "D"), key=lambda name: (float(deltas[name][2]), name))
+
+    lower_dx = sorted(float(deltas[name][0]) for name in lower_names)
+    upper_dx = sorted(float(deltas[name][0]) for name in upper_names)
+    lower_dz = sorted(float(deltas[name][2]) for name in lower_names)
+    upper_dz = sorted(float(deltas[name][2]) for name in upper_names)
 
     assert lower_dx == [11.0, 12.0]
     assert upper_dx == [31.0, 32.0]
     assert lower_dz == [5.0, 6.0]
     assert upper_dz == [5.0, 6.0]
-
-    origin_after = state.get_transform("G")["origin"]
-    assert np.allclose(origin_after - origin_before, np.array([0.0, 7.0, 0.0], dtype=float), atol=1e-8)
+    for name in ("A", "B", "C", "D"):
+        assert np.isclose(float(deltas[name][1]), 7.0, atol=1e-8)
 
     p0 = get_world_point(geom, state, "B", "points.P0")
     p1 = get_world_point(geom, state, "B", "points.P1")
