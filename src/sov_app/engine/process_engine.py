@@ -298,16 +298,6 @@ class ProcessEngine:
         if not selected_metrics:
             return
 
-        metric = selected_metrics[-1][0]
-
-        v_world = np.array(metric.get("transverse_dir_world", []), dtype=float)
-        if v_world.shape != (3,):
-            return
-        v_norm = float(np.linalg.norm(v_world))
-        if v_norm < 1e-12:
-            return
-        v_world = v_world / v_norm
-
         proto = self.geom.get_prototype(self.geom.get_instance(inst_id).get("prototype", ""))
         points = proto.get("features", {}).get("points", {})
         if not all(name in points for name in ("A", "B", "C", "D")):
@@ -326,7 +316,7 @@ class ProcessEngine:
                 shrink = 0.18 * max(g_real, 0.0)
                 if shrink <= 0.0:
                     continue
-                d_local = self._world_vec_to_local(inst_id, state, (-shrink) * v_world)
+                d_local = np.array([-shrink, 0.0, 0.0], dtype=float)
                 for pname in lower_points:
                     state.add_point_offset(inst_id, pname, d_local)
                 continue
@@ -336,7 +326,7 @@ class ProcessEngine:
                 shrink = 0.18 * max(g_real, 0.0)
                 if shrink <= 0.0:
                     continue
-                d_local = self._world_vec_to_local(inst_id, state, (-shrink) * v_world)
+                d_local = np.array([-shrink, 0.0, 0.0], dtype=float)
                 for pname in upper_points:
                     state.add_point_offset(inst_id, pname, d_local)
                 continue
@@ -345,11 +335,11 @@ class ProcessEngine:
             s1 = 0.18 * max(float(pair_metric.get("g_real_1", pair_metric.get("g_real", 0.0)) or 0.0), 0.0)
 
             if s0 > 0.0:
-                d0_local = self._world_vec_to_local(inst_id, state, (-s0) * v_world)
+                d0_local = np.array([-s0, 0.0, 0.0], dtype=float)
                 for pname in lower_points:
                     state.add_point_offset(inst_id, pname, d0_local)
             if s1 > 0.0:
-                d1_local = self._world_vec_to_local(inst_id, state, (-s1) * v_world)
+                d1_local = np.array([-s1, 0.0, 0.0], dtype=float)
                 for pname in upper_points:
                     state.add_point_offset(inst_id, pname, d1_local)
 
