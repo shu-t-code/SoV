@@ -502,16 +502,47 @@ class ProcessEngine:
         inst = self.geom.get_instance(guest_id)
         proto_name = inst.get("prototype", "")
         proto = self.geom.get_prototype(proto_name)
-        vertex_names = sorted(proto.get("features", {}).get("points", {}).keys())
-        if len(vertex_names) != 4:
+        all_point_names = sorted(proto.get("features", {}).get("points", {}).keys())
+
+        ref_line_points = []
+        for ref in (guest_q0, guest_q1):
+            if isinstance(ref, str) and ref.startswith("points."):
+                ref_line_points.append(ref.split(".", 1)[1])
+        ref_line_points = sorted(dict.fromkeys(ref_line_points))
+
+        aux_ref_points = []
+        for name in ref_line_points:
+            if name not in all_point_names:
+                continue
+            point = proto.get("features", {}).get("points", {}).get(name)
+            if not isinstance(point, (list, tuple)) or len(point) < 3:
+                continue
+            used_elsewhere = False
+            for other_name, other_point in proto.get("features", {}).get("points", {}).items():
+                if other_name == name or not isinstance(other_point, (list, tuple)) or len(other_point) < 3:
+                    continue
+                if np.allclose(np.array(point[:3], dtype=float), np.array(other_point[:3], dtype=float), atol=1e-9):
+                    used_elsewhere = True
+                    break
+            if not used_elsewhere:
+                aux_ref_points.append(name)
+
+        excluded_point_names = sorted(dict.fromkeys(aux_ref_points))
+        candidate_point_names = [name for name in all_point_names if name not in excluded_point_names]
+
+        if len(candidate_point_names) != 4:
             step_id = str(step.get("id", ""))
             raise ValueError(
-                f"fillet_fitup supports exactly 4 vertices: step_id='{step_id}', guest_id='{guest_id}', "
-                f"n_vertices={len(vertex_names)}"
+                "fillet_fitup supports exactly 4 physical vertices: "
+                f"step_id='{step_id}', guest_id='{guest_id}', "
+                f"all_point_names={all_point_names}, "
+                f"candidate_point_names={candidate_point_names}, "
+                f"excluded_point_names={excluded_point_names}, "
+                f"ref_line_point_names={ref_line_points}"
             )
 
-        world_points = {vnm: get_world_point(self.geom, state, guest_id, f"points.{vnm}") for vnm in vertex_names}
-        by_z = sorted(vertex_names, key=lambda v: (float(world_points[v][2]), v))
+        world_points = {vnm: get_world_point(self.geom, state, guest_id, f"points.{vnm}") for vnm in candidate_point_names}
+        by_z = sorted(candidate_point_names, key=lambda v: (float(world_points[v][2]), v))
         lower_vertices = by_z[:2]
         upper_vertices = by_z[2:]
         lower_by_y = sorted(lower_vertices, key=lambda v: (float(world_points[v][1]), v))
