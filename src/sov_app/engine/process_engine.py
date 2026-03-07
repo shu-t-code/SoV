@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Callable, Dict, List
 
 import numpy as np
@@ -22,6 +23,16 @@ class ProcessEngine:
         self.geom = geom
         self.flow = flow
         self.rng = rng
+
+    def _extract_pair_index(self, value: Any) -> int | None:
+        if isinstance(value, (int, np.integer)):
+            pair_index = int(value)
+            return pair_index if pair_index in (0, 1) else None
+        if isinstance(value, str):
+            match = re.search(r"pair([01])", value)
+            if match:
+                return int(match.group(1))
+        return None
 
     def _sample(self, spec: Any) -> float:
         return DistributionSampler.sample(spec, self.rng, self.flow.dists)
@@ -265,24 +276,29 @@ class ProcessEngine:
         if not isinstance(metrics_by_step, dict):
             return
 
-        guest_metric = None
-        unbound_metrics: List[Dict[str, Any]] = []
-        for metrics in metrics_by_step.values():
+        bound_metrics: List[tuple[Dict[str, Any], int | None]] = []
+        unbound_metrics: List[tuple[Dict[str, Any], int | None]] = []
+        for step_id, metrics in metrics_by_step.items():
             if not isinstance(metrics, list):
                 continue
             for metric in metrics:
                 if not isinstance(metric, dict):
                     continue
+                pair_index = self._extract_pair_index(metric.get("pair_index"))
+                if pair_index is None:
+                    pair_index = self._extract_pair_index(step_id)
                 if metric.get("guest_instance") == inst_id:
-                    guest_metric = metric
+                    bound_metrics.append((metric, pair_index))
                 elif metric.get("guest_instance") in (None, ""):
-                    unbound_metrics.append(metric)
+                    unbound_metrics.append((metric, pair_index))
 
-        metric = guest_metric
-        if metric is None and len(unbound_metrics) == 1:
-            metric = unbound_metrics[0]
-        if not isinstance(metric, dict):
+        selected_metrics = bound_metrics
+        if not selected_metrics and len(unbound_metrics) == 1:
+            selected_metrics = unbound_metrics
+        if not selected_metrics:
             return
+
+        metric = selected_metrics[-1][0]
 
         v_world = np.array(metric.get("transverse_dir_world", []), dtype=float)
         if v_world.shape != (3,):
@@ -291,11 +307,6 @@ class ProcessEngine:
         if v_norm < 1e-12:
             return
         v_world = v_world / v_norm
-
-        s0 = 0.18 * max(float(metric.get("g_real_0", metric.get("g_real", 0.0)) or 0.0), 0.0)
-        s1 = 0.18 * max(float(metric.get("g_real_1", metric.get("g_real", 0.0)) or 0.0), 0.0)
-        if s0 <= 0.0 and s1 <= 0.0:
-            return
 
         proto = self.geom.get_prototype(self.geom.get_instance(inst_id).get("prototype", ""))
         points = proto.get("features", {}).get("points", {})
@@ -309,14 +320,38 @@ class ProcessEngine:
         lower_points = [name for name, xyz in points.items() if abs(float(xyz[1]) - y_ab) <= tol]
         upper_points = [name for name, xyz in points.items() if abs(float(xyz[1]) - y_cd) <= tol]
 
-        if s0 > 0.0:
-            d0_local = self._world_vec_to_local(inst_id, state, (-s0) * v_world)
-            for pname in lower_points:
-                state.add_point_offset(inst_id, pname, d0_local)
-        if s1 > 0.0:
-            d1_local = self._world_vec_to_local(inst_id, state, (-s1) * v_world)
-            for pname in upper_points:
-                state.add_point_offset(inst_id, pname, d1_local)
+        for pair_metric, pair_index in selected_metrics:
+            if pair_index == 0:
+                g_real = float(pair_metric.get("g_real_0", pair_metric.get("g_real", 0.0)) or 0.0)
+                shrink = 0.18 * max(g_real, 0.0)
+                if shrink <= 0.0:
+                    continue
+                d_local = self._world_vec_to_local(inst_id, state, (-shrink) * v_world)
+                for pname in lower_points:
+                    state.add_point_offset(inst_id, pname, d_local)
+                continue
+
+            if pair_index == 1:
+                g_real = float(pair_metric.get("g_real_1", pair_metric.get("g_real", 0.0)) or 0.0)
+                shrink = 0.18 * max(g_real, 0.0)
+                if shrink <= 0.0:
+                    continue
+                d_local = self._world_vec_to_local(inst_id, state, (-shrink) * v_world)
+                for pname in upper_points:
+                    state.add_point_offset(inst_id, pname, d_local)
+                continue
+
+            s0 = 0.18 * max(float(pair_metric.get("g_real_0", pair_metric.get("g_real", 0.0)) or 0.0), 0.0)
+            s1 = 0.18 * max(float(pair_metric.get("g_real_1", pair_metric.get("g_real", 0.0)) or 0.0), 0.0)
+
+            if s0 > 0.0:
+                d0_local = self._world_vec_to_local(inst_id, state, (-s0) * v_world)
+                for pname in lower_points:
+                    state.add_point_offset(inst_id, pname, d0_local)
+            if s1 > 0.0:
+                d1_local = self._world_vec_to_local(inst_id, state, (-s1) * v_world)
+                for pname in upper_points:
+                    state.add_point_offset(inst_id, pname, d1_local)
 
     def _fitup_attach_to_marking_line(self, step: Dict[str, Any], state: AssemblyState):
         base = step.get("base", {})
@@ -413,6 +448,7 @@ class ProcessEngine:
             enforce_nonnegative_gap = bool(butt_fitup.get("enforce_nonnegative_gap", False))
             delta_y = self._sample(butt_fitup["delta_y"])
             step_id = str(step.get("id", ""))
+            pair_index = self._extract_pair_index(step_id)
             metrics_by_step = getattr(state, "butt_fitup_metrics", None)
             if metrics_by_step is None:
                 metrics_by_step = {}
@@ -507,6 +543,7 @@ class ProcessEngine:
 
                 metric_entry: Dict[str, Any] = {
                     "guest_instance": guest_id,
+                    "pair_index": pair_index,
                     "transverse_dir_world": v.tolist(),
                     "w": pair0["w"],
                     "w0": float(w0_model),
@@ -674,6 +711,4 @@ class ProcessEngine:
             l_size = base_dims.get("L", float(proto.get("dims", {}).get("L", 2000.0)))
             gap = self._sample(constraints.get("coincident_1D", {}).get("gap_dist", 0.0)) if "coincident_1D" in constraints else 0.0
             state.set_transform(guest_id, base_tr["origin"] + np.array([l_size + gap, 0.0, 0.0], dtype=float), base_tr["rpy_deg"])
-
-
 __all__ = ["ProcessEngine"]
