@@ -319,15 +319,31 @@ class ProcessEngine:
         lower_points = [name for name, xyz in points.items() if abs(float(xyz[1]) - y_ab) <= tol]
         upper_points = [name for name, xyz in points.items() if abs(float(xyz[1]) - y_cd) <= tol]
 
+        def _signed_local_x_shrinkage(point_name: str, shrink: float, weld_x_local: float | None) -> np.ndarray:
+            if shrink <= 0.0:
+                return np.zeros(3, dtype=float)
+            if weld_x_local is None:
+                return np.array([-shrink, 0.0, 0.0], dtype=float)
+            point_x_local = float(points.get(point_name, [0.0, 0.0, 0.0])[0])
+            dx = point_x_local - weld_x_local
+            if abs(dx) <= tol:
+                return np.zeros(3, dtype=float)
+            sign = -1.0 if dx > 0.0 else 1.0
+            return np.array([sign * shrink, 0.0, 0.0], dtype=float)
+
         for pair_metric, pair_index in selected_metrics:
             if pair_index == 0:
                 g_real = self._extract_realized_gap(pair_metric, "g_real_0", "g_real_1", "g_real")
                 shrink = 0.18 * max(g_real, 0.0)
                 if shrink <= 0.0:
                     continue
-                d_local = np.array([-shrink, 0.0, 0.0], dtype=float)
+                weld_x_local = pair_metric.get("weld_x_local_0")
+                if weld_x_local is not None:
+                    weld_x_local = float(weld_x_local)
                 for pname in lower_points:
-                    state.add_point_offset(inst_id, pname, d_local)
+                    d_local = _signed_local_x_shrinkage(pname, shrink, weld_x_local)
+                    if np.any(d_local):
+                        state.add_point_offset(inst_id, pname, d_local)
                 continue
 
             if pair_index == 1:
@@ -335,22 +351,38 @@ class ProcessEngine:
                 shrink = 0.18 * max(g_real, 0.0)
                 if shrink <= 0.0:
                     continue
-                d_local = np.array([-shrink, 0.0, 0.0], dtype=float)
+                weld_x_local = pair_metric.get("weld_x_local_1")
+                if weld_x_local is None:
+                    weld_x_local = pair_metric.get("weld_x_local_0")
+                if weld_x_local is not None:
+                    weld_x_local = float(weld_x_local)
                 for pname in upper_points:
-                    state.add_point_offset(inst_id, pname, d_local)
+                    d_local = _signed_local_x_shrinkage(pname, shrink, weld_x_local)
+                    if np.any(d_local):
+                        state.add_point_offset(inst_id, pname, d_local)
                 continue
 
             s0 = 0.18 * max(self._extract_realized_gap(pair_metric, "g_real_0", "g_real_1", "g_real"), 0.0)
             s1 = 0.18 * max(self._extract_realized_gap(pair_metric, "g_real_1", "g_real_0", "g_real"), 0.0)
 
             if s0 > 0.0:
-                d0_local = np.array([-s0, 0.0, 0.0], dtype=float)
+                weld_x_local_0 = pair_metric.get("weld_x_local_0")
+                if weld_x_local_0 is not None:
+                    weld_x_local_0 = float(weld_x_local_0)
                 for pname in lower_points:
-                    state.add_point_offset(inst_id, pname, d0_local)
+                    d0_local = _signed_local_x_shrinkage(pname, s0, weld_x_local_0)
+                    if np.any(d0_local):
+                        state.add_point_offset(inst_id, pname, d0_local)
             if s1 > 0.0:
-                d1_local = np.array([-s1, 0.0, 0.0], dtype=float)
+                weld_x_local_1 = pair_metric.get("weld_x_local_1")
+                if weld_x_local_1 is None:
+                    weld_x_local_1 = pair_metric.get("weld_x_local_0")
+                if weld_x_local_1 is not None:
+                    weld_x_local_1 = float(weld_x_local_1)
                 for pname in upper_points:
-                    state.add_point_offset(inst_id, pname, d1_local)
+                    d1_local = _signed_local_x_shrinkage(pname, s1, weld_x_local_1)
+                    if np.any(d1_local):
+                        state.add_point_offset(inst_id, pname, d1_local)
 
     def _fitup_attach_to_marking_line(self, step: Dict[str, Any], state: AssemblyState):
         base = step.get("base", {})
@@ -455,6 +487,17 @@ class ProcessEngine:
             metrics_for_step = metrics_by_step.setdefault(step_id, [])
             delta_y_applied_guests = set()
 
+            def _extract_local_x_from_point_ref(instance_id: str, point_ref: Any) -> float | None:
+                if not isinstance(point_ref, str) or not point_ref.startswith("points."):
+                    return None
+                point_name = point_ref.split(".", 1)[1]
+                proto_id = self.geom.get_instance(instance_id).get("prototype", "")
+                proto = self.geom.get_prototype(proto_id)
+                point = proto.get("features", {}).get("points", {}).get(point_name)
+                if not isinstance(point, (list, tuple)) or len(point) < 1:
+                    return None
+                return float(point[0])
+
             def _sample_pair_fitup() -> Dict[str, Any]:
                 l_fit = self._sample(butt_fitup["L_dist"])
                 em_a = self._sample(butt_fitup["eps_mA"])
@@ -492,6 +535,8 @@ class ProcessEngine:
                 base_p0, base_p1 = base.get("p0", "points.A"), base.get("p1", "points.D")
                 guest_q0 = guest.get("q0", "points.B")
                 guest_q1 = guest.get("q1")
+                weld_x_local_0 = _extract_local_x_from_point_ref(guest_id, guest_q0)
+                weld_x_local_1 = _extract_local_x_from_point_ref(guest_id, guest_q1) if guest_q1 else None
 
                 p0 = get_world_point(self.geom, state, base_id, base_p0)
                 p1 = get_world_point(self.geom, state, base_id, base_p1)
@@ -544,6 +589,8 @@ class ProcessEngine:
                     "guest_instance": guest_id,
                     "pair_index": pair_index,
                     "transverse_dir_world": v.tolist(),
+                    "weld_x_local_0": weld_x_local_0,
+                    "weld_x_local_1": weld_x_local_1,
                     "w": pair0["w"],
                     "w0": float(w0_model),
                     "L": pair0["L"],

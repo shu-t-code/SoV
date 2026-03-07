@@ -214,6 +214,9 @@ def test_marking_line_butt_shrinkage_is_applied_via_welding_distortion_flow_step
     assert pair0_metric["g_real_0"] == pytest.approx(4.0)
     assert pair1_metric["g_real_0"] == pytest.approx(1.0)
     assert pair1_metric["g_real_1"] is None
+    assert pair0_metric["weld_x_local_0"] == pytest.approx(0.0)
+    assert pair1_metric["weld_x_local_0"] == pytest.approx(200.0)
+    assert pair1_metric.get("weld_x_local_1") is None
 
     delta_a = fitup_with_weld.get_point_offset("G1", "A") - fitup_only.get_point_offset("G1", "A")
     delta_b = fitup_with_weld.get_point_offset("G1", "B") - fitup_only.get_point_offset("G1", "B")
@@ -223,14 +226,120 @@ def test_marking_line_butt_shrinkage_is_applied_via_welding_distortion_flow_step
     delta_mk_cd = fitup_with_weld.get_point_offset("G1", "MK_CD") - fitup_only.get_point_offset("G1", "MK_CD")
     delta_mid = fitup_with_weld.get_point_offset("G1", "MID") - fitup_only.get_point_offset("G1", "MID")
 
-    expected_ab = np.array([-0.72, 0.0, 0.0], dtype=float)
-    expected_cd = np.array([-0.18, 0.0, 0.0], dtype=float)
+    def _expected_signed_x(shrink: float, x_point: float, x_weld: float, tol: float = 1e-9) -> np.ndarray:
+        dx = x_point - x_weld
+        if abs(dx) <= tol:
+            return np.zeros(3, dtype=float)
+        sign = -1.0 if dx > 0.0 else 1.0
+        return np.array([sign * shrink, 0.0, 0.0], dtype=float)
+
+    s0 = 0.18 * 4.0
+    s1 = 0.18 * 1.0
+    xw0 = float(pair0_metric["weld_x_local_0"])
+    xw1 = float(pair1_metric["weld_x_local_0"])
+
+    expected_a = _expected_signed_x(s0, 0.0, xw0)
+    expected_b = _expected_signed_x(s0, 200.0, xw0)
+    expected_mk_ab = _expected_signed_x(s0, 120.0, xw0)
+    expected_c = _expected_signed_x(s1, 200.0, xw1)
+    expected_d = _expected_signed_x(s1, 0.0, xw1)
+    expected_mk_cd = _expected_signed_x(s1, 40.0, xw1)
     expected_none = np.zeros(3, dtype=float)
 
-    assert np.allclose(delta_a, expected_ab, atol=1e-8)
-    assert np.allclose(delta_b, expected_ab, atol=1e-8)
-    assert np.allclose(delta_mk_ab, expected_ab, atol=1e-8)
-    assert np.allclose(delta_c, expected_cd, atol=1e-8)
-    assert np.allclose(delta_d, expected_cd, atol=1e-8)
-    assert np.allclose(delta_mk_cd, expected_cd, atol=1e-8)
+    # pair0 group: A is on weld line -> 0, B/MK_AB are positive side -> -S0
+    assert np.allclose(delta_a, expected_a, atol=1e-8)
+    assert np.allclose(delta_b, expected_b, atol=1e-8)
+    assert np.allclose(delta_mk_ab, expected_mk_ab, atol=1e-8)
+    # pair1 group: C is on weld line -> 0, D/MK_CD are negative side -> +S1
+    assert np.allclose(delta_c, expected_c, atol=1e-8)
+    assert np.allclose(delta_d, expected_d, atol=1e-8)
+    assert np.allclose(delta_mk_cd, expected_mk_cd, atol=1e-8)
     assert np.allclose(delta_mid, expected_none, atol=1e-8)
+
+
+def test_marking_line_butt_shrinkage_direction_moves_points_toward_weld_line() -> None:
+    geom = GeometryModel(
+        {
+            "prototypes": [
+                {
+                    "id": "plate_with_marks",
+                    "dims": {"L": 200.0, "H": 100.0, "t": 10.0},
+                    "features": {
+                        "points": {
+                            "A": [40.0, 0.0, 0.0],
+                            "B": [160.0, 0.0, 0.0],
+                            "C": [160.0, 100.0, 0.0],
+                            "D": [40.0, 100.0, 0.0],
+                            "MK_AB": [20.0, 0.0, 0.0],
+                            "MK_CD": [180.0, 100.0, 0.0],
+                            "ON_AB": [100.0, 0.0, 0.0],
+                            "ON_CD": [100.0, 100.0, 0.0],
+                            "MID": [100.0, 50.0, 0.0],
+                        }
+                    },
+                }
+            ],
+            "instances": [
+                {"id": "G1", "prototype": "plate_with_marks", "frame": {"parent": "world", "origin": [0.0, 0.0, 0.0], "rpy_deg": [0.0, 0.0, 0.0]}},
+            ],
+        }
+    )
+    flow = FlowModel(
+        {
+            "selectors": {"GUEST": {"ids": ["G1"]}},
+            "steps": [
+                {
+                    "id": "weld_step",
+                    "op": "welding_distortion",
+                    "target": {"selector": "GUEST"},
+                    "model": {
+                        "outplane_dz": {"type": "Fixed", "value": 0.0},
+                        "weak_bending_about_x": {"type": "Fixed", "value": 0.0},
+                    },
+                }
+            ],
+        }
+    )
+
+    state = AssemblyState(geom)
+    state.butt_fitup_metrics = {
+        "fitup_pair0": [
+            {
+                "guest_instance": "G1",
+                "pair_index": 0,
+                "g_real_0": 4.0,
+                "weld_x_local_0": 100.0,
+            }
+        ],
+        "fitup_pair1": [
+            {
+                "guest_instance": "G1",
+                "pair_index": 1,
+                "g_real_0": 2.0,
+                "weld_x_local_0": 100.0,
+            }
+        ],
+    }
+
+    engine = ProcessEngine(geom, flow, np.random.default_rng(0))
+    engine.apply_steps(state)
+
+    s0 = 0.18 * 4.0
+    s1 = 0.18 * 2.0
+    expected_neg_side_ab = np.array([+s0, 0.0, 0.0], dtype=float)
+    expected_pos_side_ab = np.array([-s0, 0.0, 0.0], dtype=float)
+    expected_neg_side_cd = np.array([+s1, 0.0, 0.0], dtype=float)
+    expected_pos_side_cd = np.array([-s1, 0.0, 0.0], dtype=float)
+    expected_none = np.zeros(3, dtype=float)
+
+    assert np.allclose(state.get_point_offset("G1", "A"), expected_neg_side_ab, atol=1e-8)
+    assert np.allclose(state.get_point_offset("G1", "B"), expected_pos_side_ab, atol=1e-8)
+    assert np.allclose(state.get_point_offset("G1", "MK_AB"), expected_neg_side_ab, atol=1e-8)
+    assert np.allclose(state.get_point_offset("G1", "ON_AB"), expected_none, atol=1e-8)
+
+    assert np.allclose(state.get_point_offset("G1", "D"), expected_neg_side_cd, atol=1e-8)
+    assert np.allclose(state.get_point_offset("G1", "C"), expected_pos_side_cd, atol=1e-8)
+    assert np.allclose(state.get_point_offset("G1", "MK_CD"), expected_pos_side_cd, atol=1e-8)
+    assert np.allclose(state.get_point_offset("G1", "ON_CD"), expected_none, atol=1e-8)
+
+    assert np.allclose(state.get_point_offset("G1", "MID"), expected_none, atol=1e-8)
