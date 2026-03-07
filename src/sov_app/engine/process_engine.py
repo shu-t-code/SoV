@@ -442,9 +442,32 @@ class ProcessEngine:
         origin_old = np.array(tr["origin"], dtype=float)
         r_old = rpy_to_rotation_matrix(*tr["rpy_deg"])
         q0_local = r_old.T @ (q0 - origin_old)
+        q_line_local = r_old.T @ (q1 - q0)
+        q_line_local_u = self._unit(q_line_local)
 
         r_delta = self._rotation_matrix_from_axis_angle(axis, theta)
-        r_new = r_delta @ r_old
+        r_align = r_delta @ r_old
+        r_new = r_align
+
+        constraints = step.get("constraints", {})
+        set_rpy_deg = constraints.get("set_rpy_deg") if isinstance(constraints, dict) else None
+        if set_rpy_deg is not None:
+            if not isinstance(set_rpy_deg, (list, tuple)) or len(set_rpy_deg) != 3:
+                raise ValueError("fitup_attach_to_marking_line constraints.set_rpy_deg must be [roll, pitch, yaw]")
+            r_hint = rpy_to_rotation_matrix(float(set_rpy_deg[0]), float(set_rpy_deg[1]), float(set_rpy_deg[2]))
+            best_phi = 0.0
+            best_cost = float("inf")
+            for phi_deg in np.linspace(-180.0, 180.0, 721):
+                r_spin = self._rotation_matrix_from_axis_angle(base_dir, np.deg2rad(float(phi_deg)))
+                r_candidate = r_spin @ r_align
+                # Minimize geodesic-like matrix distance to legacy orientation hint.
+                cost = float(np.linalg.norm(r_candidate - r_hint, ord="fro"))
+                if cost < best_cost:
+                    best_cost = cost
+                    best_phi = float(phi_deg)
+            r_spin = self._rotation_matrix_from_axis_angle(base_dir, np.deg2rad(best_phi))
+            r_new = r_spin @ r_align
+
         origin_new = p0 - r_new @ q0_local
         state.set_transform(guest_id, origin_new, rotation_matrix_to_rpy_deg(r_new))
 
