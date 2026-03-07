@@ -37,12 +37,11 @@ def _run_once(seed: int) -> dict[str, dict[str, object]]:
     engine = ProcessEngine(geom, flow, np.random.default_rng(seed))
     engine.apply_steps(state)
 
+    steps_by_id = {str(step.get("id", "")): step for step in flow.steps}
     result: dict[str, dict[str, object]] = {}
-    for step in flow.steps:
-        sid = str(step.get("id", ""))
-        if sid not in TARGET_FITUP_IDS:
-            continue
-        fillet = step.get("model", {}).get("fillet_fitup", {})
+    for sid in TARGET_FITUP_IDS:
+        step = steps_by_id.get(sid, {})
+        fillet = (step.get("model") or {}).get("fillet_fitup") or {}
         lower = list(fillet.get("lower_points_effective", []))
         upper = list(fillet.get("upper_points_effective", []))
         pairs = list(fillet.get("pair_effective", []))
@@ -71,17 +70,20 @@ def main() -> None:
         print("points.c2 class:", item.get("points.c2_class"))
         print()
 
-    tally = {sid: 0 for sid in TARGET_FITUP_IDS}
+    tally = {sid: {"upper": 0, "lower": 0, "none": 0} for sid in TARGET_FITUP_IDS}
     n = 200
     for seed in range(n):
         per_run = _run_once(seed=seed)
         for sid in TARGET_FITUP_IDS:
-            if per_run.get(sid, {}).get("points.c2_class") == "upper":
-                tally[sid] += 1
+            klass = str(per_run.get(sid, {}).get("points.c2_class", "none"))
+            if klass not in ("upper", "lower", "none"):
+                klass = "none"
+            tally[sid][klass] += 1
 
     print("=== tally over seeds 0..199 ===")
     for sid in TARGET_FITUP_IDS:
-        print(f"{sid}: points.c2 upper count = {tally[sid]} / {n}")
+        counts = tally[sid]
+        print(f"{sid}: points.c2 upper={counts['upper']} lower={counts['lower']} none={counts['none']} / {n}")
 
 
 if __name__ == "__main__":
