@@ -305,13 +305,18 @@ def test_marking_line_attach_applies_fillet_fitup_offsets_after_set_rpy() -> Non
     engine._sample = lambda spec: samples.pop(0)
     engine.apply_steps(state)
 
-    deltas = {
-        name: get_world_point(geom, state, "G", f"points.{name}")
-        - get_world_point(geom, baseline_state, "G", f"points.{name}")
+    baseline_world_points = {
+        name: get_world_point(geom, baseline_state, "G", f"points.{name}")
         for name in ("A", "B", "C", "D")
     }
-    lower_names = sorted(("A", "B"), key=lambda name: (float(deltas[name][2]), name))
-    upper_names = sorted(("C", "D"), key=lambda name: (float(deltas[name][2]), name))
+    by_z = sorted(("A", "B", "C", "D"), key=lambda name: (float(baseline_world_points[name][2]), name))
+    lower_names = by_z[:2]
+    upper_names = by_z[2:]
+
+    deltas = {
+        name: get_world_point(geom, state, "G", f"points.{name}") - baseline_world_points[name]
+        for name in ("A", "B", "C", "D")
+    }
 
     lower_dx = sorted(float(deltas[name][0]) for name in lower_names)
     upper_dx = sorted(float(deltas[name][0]) for name in upper_names)
