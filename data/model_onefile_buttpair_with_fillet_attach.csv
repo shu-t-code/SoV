@@ -85,6 +85,9 @@ flow,/steps/0/target/union/1,"""ALL_Cs"""
 flow,/steps/1/base/instance,"""A1"""
 flow,/steps/1/base/mark_line/p0,"""points.MK_C1_P0"""
 flow,/steps/1/base/mark_line/p1,"""points.MK_C1_P1"""
+flow,/steps/1/constraints/set_rpy_deg/0,0
+flow,/steps/1/constraints/set_rpy_deg/1,-90
+flow,/steps/1/constraints/set_rpy_deg/2,0
 flow,/steps/1/guest/instance,"""C1"""
 flow,/steps/1/guest/ref_line/p0,"""points.ATTACH_REF_P0"""
 flow,/steps/1/guest/ref_line/p1,"""points.ATTACH_REF_P1"""
@@ -93,6 +96,9 @@ flow,/steps/1/op,"""fitup_attach_to_marking_line"""
 flow,/steps/2/base/instance,"""A2"""
 flow,/steps/2/base/mark_line/p0,"""points.MK_C2_P0"""
 flow,/steps/2/base/mark_line/p1,"""points.MK_C2_P1"""
+flow,/steps/2/constraints/set_rpy_deg/0,0
+flow,/steps/2/constraints/set_rpy_deg/1,-90
+flow,/steps/2/constraints/set_rpy_deg/2,0
 flow,/steps/2/guest/instance,"""C2"""
 flow,/steps/2/guest/ref_line/p0,"""points.ATTACH_REF_P0"""
 flow,/steps/2/guest/ref_line/p1,"""points.ATTACH_REF_P1"""

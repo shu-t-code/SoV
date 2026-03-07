@@ -4,7 +4,7 @@ import pytest
 
 np = pytest.importorskip("numpy")
 
-from sov_app.engine.core_models import AssemblyState, FlowModel, GeometryModel, get_world_point
+from sov_app.engine.core_models import AssemblyState, FlowModel, GeometryModel, get_world_point, rpy_to_rotation_matrix
 from sov_app.engine.io_csv import load_data_from_csv
 from sov_app.engine.process_engine import ProcessEngine
 
@@ -64,6 +64,101 @@ def test_marking_line_attach_min_flow_aligns_c2_ref_line_to_a2_marking_line() ->
 
     assert np.linalg.norm(p0 - q0) < 1e-6
     assert np.linalg.norm(p1 - q1) < 1e-6
+
+
+def test_marking_line_attach_accepts_set_rpy_deg_while_preserving_line_alignment() -> None:
+    geom = GeometryModel(
+        {
+            "prototypes": [
+                {
+                    "id": "plate_A",
+                    "features": {
+                        "points": {
+                            "MK_P0": [1000.0, 0.0, 0.0],
+                            "MK_P1": [1000.0, 1000.0, 0.0],
+                        }
+                    },
+                },
+                {
+                    "id": "stiff_C",
+                    "features": {
+                        "points": {
+                            "REF_P0": [0.0, 0.0, 0.0],
+                            "REF_P1": [0.0, 1000.0, 0.0],
+                        }
+                    },
+                },
+            ],
+            "instances": [
+                {"id": "A1", "prototype": "plate_A", "frame": {"parent": "world", "origin": [0.0, 0.0, 0.0], "rpy_deg": [0.0, 0.0, 0.0]}},
+                {"id": "C1", "prototype": "stiff_C", "frame": {"parent": "world", "origin": [0.0, 0.0, 0.0], "rpy_deg": [0.0, 0.0, 0.0]}},
+            ],
+        }
+    )
+    flow = FlowModel(
+        {
+            "steps": [
+                {
+                    "id": "attach",
+                    "op": "fitup_attach_to_marking_line",
+                    "base": {"instance": "A1", "mark_line": {"p0": "points.MK_P0", "p1": "points.MK_P1"}},
+                    "guest": {"instance": "C1", "ref_line": {"p0": "points.REF_P0", "p1": "points.REF_P1"}},
+                    "constraints": {"set_rpy_deg": [0.0, -90.0, 0.0]},
+                }
+            ]
+        }
+    )
+
+    state = AssemblyState(geom)
+    engine = ProcessEngine(geom, flow, np.random.default_rng(0))
+    engine.apply_steps(state)
+
+    p0 = get_world_point(geom, state, "A1", "points.MK_P0")
+    p1 = get_world_point(geom, state, "A1", "points.MK_P1")
+    q0 = get_world_point(geom, state, "C1", "points.REF_P0")
+    q1 = get_world_point(geom, state, "C1", "points.REF_P1")
+
+    assert np.allclose(q0, p0, atol=1e-8)
+    assert np.allclose((q1 - q0) / np.linalg.norm(q1 - q0), (p1 - p0) / np.linalg.norm(p1 - p0), atol=1e-8)
+
+    tr = state.get_transform("C1")
+    assert np.allclose(tr["rpy_deg"], [0.0, -90.0, 0.0], atol=1e-8)
+
+    world_normal = rpy_to_rotation_matrix(*tr["rpy_deg"]) @ np.array([0.0, 0.0, 1.0], dtype=float)
+    assert abs(float(world_normal[0])) > 0.99
+
+
+def test_marking_line_attach_rejects_incompatible_set_rpy_deg() -> None:
+    geom = GeometryModel(
+        {
+            "prototypes": [
+                {"id": "base", "features": {"points": {"P0": [0.0, 0.0, 0.0], "P1": [0.0, 10.0, 0.0]}}},
+                {"id": "guest", "features": {"points": {"Q0": [0.0, 0.0, 0.0], "Q1": [0.0, 10.0, 0.0]}}},
+            ],
+            "instances": [
+                {"id": "B", "prototype": "base", "frame": {"parent": "world", "origin": [0.0, 0.0, 0.0], "rpy_deg": [0.0, 0.0, 0.0]}},
+                {"id": "G", "prototype": "guest", "frame": {"parent": "world", "origin": [0.0, 0.0, 0.0], "rpy_deg": [0.0, 0.0, 0.0]}},
+            ],
+        }
+    )
+    flow = FlowModel(
+        {
+            "steps": [
+                {
+                    "id": "attach_bad",
+                    "op": "fitup_attach_to_marking_line",
+                    "base": {"instance": "B", "mark_line": {"p0": "points.P0", "p1": "points.P1"}},
+                    "guest": {"instance": "G", "ref_line": {"p0": "points.Q0", "p1": "points.Q1"}},
+                    "constraints": {"set_rpy_deg": [90.0, 0.0, 0.0]},
+                }
+            ]
+        }
+    )
+
+    state = AssemblyState(geom)
+    engine = ProcessEngine(geom, flow, np.random.default_rng(0))
+    with pytest.raises(ValueError, match="incompatible"):
+        engine.apply_steps(state)
 
 
 def test_existing_fitup_pair_chain_still_operates() -> None:
