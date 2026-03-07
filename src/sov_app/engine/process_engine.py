@@ -471,6 +471,79 @@ class ProcessEngine:
         origin_new = p0 - r_new @ q0_local
         state.set_transform(guest_id, origin_new, rotation_matrix_to_rpy_deg(r_new))
 
+        model = step.get("model", {})
+        fillet_fitup = model.get("fillet_fitup") if isinstance(model, dict) else None
+        if not isinstance(fillet_fitup, dict):
+            return
+
+        required_keys = ("delta_mA", "delta_mB", "x_lower", "x_upper", "delta_y", "z_lower")
+        missing_keys = [k for k in required_keys if k not in fillet_fitup]
+        if missing_keys:
+            missing = ", ".join(missing_keys)
+            raise ValueError(
+                f"fillet_fitup missing required keys: {missing}; check CSV /steps/N/model/fillet_fitup/..."
+            )
+
+        axis_mode = str(fillet_fitup.get("axis_mode", "world"))
+        if axis_mode != "world":
+            raise ValueError("fillet_fitup axis_mode currently supports only 'world'.")
+
+        x_dir = np.array([1.0, 0.0, 0.0], dtype=float)
+        y_dir = np.array([0.0, 1.0, 0.0], dtype=float)
+        z_dir = np.array([0.0, 0.0, 1.0], dtype=float)
+
+        dy = self._sample(fillet_fitup["delta_y"])
+        gtr = state.get_transform(guest_id)
+        state.set_transform(guest_id, gtr["origin"] + dy * y_dir, gtr["rpy_deg"])
+
+        dm_a = self._sample(fillet_fitup["delta_mA"])
+        dm_b = self._sample(fillet_fitup["delta_mB"])
+
+        inst = self.geom.get_instance(guest_id)
+        proto_name = inst.get("prototype", "")
+        proto = self.geom.get_prototype(proto_name)
+        vertex_names = sorted(proto.get("features", {}).get("points", {}).keys())
+        if len(vertex_names) != 4:
+            step_id = str(step.get("id", ""))
+            raise ValueError(
+                f"fillet_fitup supports exactly 4 vertices: step_id='{step_id}', guest_id='{guest_id}', "
+                f"n_vertices={len(vertex_names)}"
+            )
+
+        world_points = {vnm: get_world_point(self.geom, state, guest_id, f"points.{vnm}") for vnm in vertex_names}
+        by_z = sorted(vertex_names, key=lambda v: (float(world_points[v][2]), v))
+        lower_vertices = by_z[:2]
+        upper_vertices = by_z[2:]
+        lower_by_y = sorted(lower_vertices, key=lambda v: (float(world_points[v][1]), v))
+        upper_by_y = sorted(upper_vertices, key=lambda v: (float(world_points[v][1]), v))
+
+        first_lower = lower_by_y[0]
+        first_upper = min(upper_by_y, key=lambda v: (abs(float(world_points[first_lower][1] - world_points[v][1])), v))
+        second_lower = lower_by_y[1]
+        second_upper = upper_by_y[0] if upper_by_y[0] != first_upper else upper_by_y[1]
+        pair_vertices = [(first_lower, first_upper), (second_lower, second_upper)]
+
+        fillet_fitup["lower_points_effective"] = [f"points.{v}" for v in lower_vertices]
+        fillet_fitup["upper_points_effective"] = [f"points.{v}" for v in upper_vertices]
+        fillet_fitup["pair_effective"] = [{"lower": f"points.{lv}", "upper": f"points.{uv}"} for lv, uv in pair_vertices]
+
+        for lower_v, upper_v in pair_vertices:
+            x_lower_i = dm_b + self._sample(fillet_fitup["x_lower"])
+            dx_lower_i = x_lower_i - dm_a
+            dx_lower_local = self._world_vec_to_local(guest_id, state, dx_lower_i * x_dir)
+
+            x_upper_i = dm_b + self._sample(fillet_fitup["x_upper"])
+            dx_upper_i = x_upper_i - dm_a
+            dx_upper_local = self._world_vec_to_local(guest_id, state, dx_upper_i * x_dir)
+
+            z_i = max(0.0, float(self._sample(fillet_fitup["z_lower"])))
+            dz_local = self._world_vec_to_local(guest_id, state, z_i * z_dir)
+
+            state.add_point_offset(guest_id, lower_v, dx_lower_local)
+            state.add_point_offset(guest_id, lower_v, dz_local)
+            state.add_point_offset(guest_id, upper_v, dx_upper_local)
+            state.add_point_offset(guest_id, upper_v, dz_local)
+
     def _fitup_pair_chain(self, step: Dict[str, Any], state: AssemblyState):
         model = step.get("model", {})
         chain = step.get("chain")

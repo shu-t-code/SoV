@@ -240,6 +240,88 @@ def test_existing_fitup_pair_chain_still_operates() -> None:
     assert np.isfinite(q1).all()
 
 
+def test_marking_line_attach_applies_fillet_fitup_offsets_after_set_rpy() -> None:
+    geom = GeometryModel(
+        {
+            "prototypes": [
+                {
+                    "id": "base",
+                    "features": {"points": {"P0": [0.0, 0.0, 0.0], "P1": [0.0, 1000.0, 0.0]}},
+                },
+                {
+                    "id": "guest_plate",
+                    "features": {
+                        "points": {
+                            "A": [0.0, 0.0, 0.0],
+                            "B": [100.0, 10.0, 0.0],
+                            "C": [100.0, 40.0, 10.0],
+                            "D": [0.0, 50.0, 10.0],
+                            "REF_P0": [0.0, 0.0, 0.0],
+                            "REF_P1": [0.0, 1000.0, 0.0],
+                        }
+                    },
+                },
+            ],
+            "instances": [
+                {"id": "B", "prototype": "base", "frame": {"parent": "world", "origin": [0.0, 0.0, 0.0], "rpy_deg": [0.0, 0.0, 0.0]}},
+                {"id": "G", "prototype": "guest_plate", "frame": {"parent": "world", "origin": [0.0, 0.0, 0.0], "rpy_deg": [0.0, 0.0, 0.0]}},
+            ],
+        }
+    )
+    flow = FlowModel(
+        {
+            "steps": [
+                {
+                    "id": "attach_with_fillet",
+                    "op": "fitup_attach_to_marking_line",
+                    "base": {"instance": "B", "mark_line": {"p0": "points.P0", "p1": "points.P1"}},
+                    "guest": {"instance": "G", "ref_line": {"p0": "points.REF_P0", "p1": "points.REF_P1"}},
+                    "constraints": {"set_rpy_deg": [0.0, -90.0, 0.0]},
+                    "model": {
+                        "fillet_fitup": {
+                            "delta_mA": {"type": "Fixed", "value": 0.0},
+                            "delta_mB": {"type": "Fixed", "value": 0.0},
+                            "x_lower": {"type": "Fixed", "value": 0.0},
+                            "x_upper": {"type": "Fixed", "value": 0.0},
+                            "delta_y": {"type": "Fixed", "value": 0.0},
+                            "z_lower": {"type": "Fixed", "value": 0.0},
+                        }
+                    },
+                }
+            ]
+        }
+    )
+
+    state = AssemblyState(geom)
+    engine = ProcessEngine(geom, flow, np.random.default_rng(0))
+    # delta_y, delta_mA, delta_mB, then (x_lower, x_upper, z_lower) for each lower/upper pair.
+    samples = [7.0, 1.0, 2.0, 10.0, 30.0, 5.0, 11.0, 31.0, 6.0]
+    engine._sample = lambda spec: samples.pop(0)
+
+    origin_before = state.get_transform("G")["origin"].copy()
+    engine.apply_steps(state)
+
+    offsets = state.point_offsets["G"]
+    lower_dx = sorted(float(offsets[name][0]) for name in ("A", "B"))
+    upper_dx = sorted(float(offsets[name][0]) for name in ("C", "D"))
+    lower_dz = sorted(float(offsets[name][2]) for name in ("A", "B"))
+    upper_dz = sorted(float(offsets[name][2]) for name in ("C", "D"))
+
+    assert lower_dx == [11.0, 12.0]
+    assert upper_dx == [31.0, 32.0]
+    assert lower_dz == [5.0, 6.0]
+    assert upper_dz == [5.0, 6.0]
+
+    origin_after = state.get_transform("G")["origin"]
+    assert np.allclose(origin_after - origin_before, np.array([0.0, 7.0, 0.0], dtype=float), atol=1e-8)
+
+    p0 = get_world_point(geom, state, "B", "points.P0")
+    p1 = get_world_point(geom, state, "B", "points.P1")
+    q0 = get_world_point(geom, state, "G", "points.REF_P0")
+    q1 = get_world_point(geom, state, "G", "points.REF_P1")
+    assert np.allclose((q1 - q0) / np.linalg.norm(q1 - q0), (p1 - p0) / np.linalg.norm(p1 - p0), atol=1e-8)
+
+
 def test_marking_line_butt_shrinkage_is_applied_via_welding_distortion_flow_step() -> None:
     geom = GeometryModel(
         {
