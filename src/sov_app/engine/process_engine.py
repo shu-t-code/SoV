@@ -351,7 +351,9 @@ class ProcessEngine:
                 shrink = 0.18 * max(g_real, 0.0)
                 if shrink <= 0.0:
                     continue
-                weld_x_local = pair_metric.get("weld_x_local_1", pair_metric.get("weld_x_local_0"))
+                weld_x_local = pair_metric.get("weld_x_local_1")
+                if weld_x_local is None:
+                    weld_x_local = pair_metric.get("weld_x_local_0")
                 if weld_x_local is not None:
                     weld_x_local = float(weld_x_local)
                 for pname in upper_points:
@@ -372,7 +374,9 @@ class ProcessEngine:
                     if np.any(d0_local):
                         state.add_point_offset(inst_id, pname, d0_local)
             if s1 > 0.0:
-                weld_x_local_1 = pair_metric.get("weld_x_local_1", pair_metric.get("weld_x_local_0"))
+                weld_x_local_1 = pair_metric.get("weld_x_local_1")
+                if weld_x_local_1 is None:
+                    weld_x_local_1 = pair_metric.get("weld_x_local_0")
                 if weld_x_local_1 is not None:
                     weld_x_local_1 = float(weld_x_local_1)
                 for pname in upper_points:
