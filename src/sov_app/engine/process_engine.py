@@ -690,10 +690,10 @@ class ProcessEngine:
 
                 p0 = get_world_point(self.geom, state, base_id, base_p0)
                 p1 = get_world_point(self.geom, state, base_id, base_p1)
-                u = self._unit(p1 - p0)
+                # t_dir: marking-line direction, v: transverse (gap) direction.
+                t_dir = self._unit(p1 - p0)
                 n = self._get_plane_normal_world(base_id, state)
-                # u is the welding-line direction and v is the in-plane direction orthogonal to u.
-                v = self._safe_unit_from_cross(n, u, np.array([0.0, 1.0, 0.0], dtype=float))
+                v = self._safe_unit_from_cross(n, t_dir, np.array([0.0, 1.0, 0.0], dtype=float))
 
                 pair0 = _sample_pair_fitup()
                 # q0/q1 must be satisfied by one rigid-body transform, so both targets
@@ -702,18 +702,25 @@ class ProcessEngine:
 
                 if guest_id not in delta_y_applied_guests:
                     gtr = state.get_transform(guest_id)
-                    state.set_transform(guest_id, gtr["origin"] + delta_y * u, gtr["rpy_deg"])
+                    state.set_transform(guest_id, gtr["origin"] + delta_y * t_dir, gtr["rpy_deg"])
                     delta_y_applied_guests.add(guest_id)
 
                 q0 = get_world_point(self.geom, state, guest_id, guest_q0)
-                # PR1/PR2 convention: w is interpreted as the translation amount along v.
-                q0_target = p0 + pair0["w"] * v
+                # Butt fitup targets are built in marking-line basis.
+                # When explicit marking lines are not provided in step dict, we construct
+                # virtual marking lines from edge refs + sampled dA/dB:
+                #   M_A = E_A + dA * v
+                #   M_B = E_B - dB * v
+                # and enforce: M_B_target = M_A - w * v
+                # => E_B_target = E_A + (dA + dB - w) * v = E_A - g_real * v
+                # This keeps w as marking-line spacing (not edge absolute offset).
+                q0_target = p0 + (pair0["dA"] + pair0["dB"] - pair0["w"]) * v
                 t = q0_target - q0
                 gtr_after_align = state.get_transform(guest_id)
                 state.set_transform(guest_id, gtr_after_align["origin"] + t, gtr_after_align["rpy_deg"])
 
                 if guest_q1 and pair1 is not None:
-                    q1_target = p1 + pair1["w"] * v
+                    q1_target = p1 + (pair1["dA"] + pair1["dB"] - pair1["w"]) * v
                     gtr_aligned = state.get_transform(guest_id)
                     origin_old = np.array(gtr_aligned["origin"], dtype=float)
                     rpy_old = gtr_aligned["rpy_deg"]
