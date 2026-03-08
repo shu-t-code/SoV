@@ -92,6 +92,12 @@ flow,/steps/1/guest/instance,"""C1"""
 flow,/steps/1/guest/ref_line/p0,"""points.ATTACH_REF_P0"""
 flow,/steps/1/guest/ref_line/p1,"""points.ATTACH_REF_P1"""
 flow,/steps/1/id,"""20_fitup_C1_on_A1_marking_line"""
+flow,/steps/1/model/fillet_fitup/delta_mA,N_fillet_delta_mA
+flow,/steps/1/model/fillet_fitup/delta_mB,N_fillet_delta_mB
+flow,/steps/1/model/fillet_fitup/x_lower,N_fillet_x_lower
+flow,/steps/1/model/fillet_fitup/x_upper,N_fillet_x_upper
+flow,/steps/1/model/fillet_fitup/delta_y,N_fillet_delta_y
+flow,/steps/1/model/fillet_fitup/z_lower,LN_fillet_z_lower
 flow,/steps/1/op,"""fitup_attach_to_marking_line"""
 flow,/steps/2/base/instance,"""A2"""
 flow,/steps/2/base/mark_line/p0,"""points.MK_C2_P0"""
@@ -103,6 +109,12 @@ flow,/steps/2/guest/instance,"""C2"""
 flow,/steps/2/guest/ref_line/p0,"""points.ATTACH_REF_P0"""
 flow,/steps/2/guest/ref_line/p1,"""points.ATTACH_REF_P1"""
 flow,/steps/2/id,"""21_fitup_C2_on_A2_marking_line"""
+flow,/steps/2/model/fillet_fitup/delta_mA,N_fillet_delta_mA
+flow,/steps/2/model/fillet_fitup/delta_mB,N_fillet_delta_mB
+flow,/steps/2/model/fillet_fitup/x_lower,N_fillet_x_lower
+flow,/steps/2/model/fillet_fitup/x_upper,N_fillet_x_upper
+flow,/steps/2/model/fillet_fitup/delta_y,N_fillet_delta_y
+flow,/steps/2/model/fillet_fitup/z_lower,LN_fillet_z_lower
 flow,/steps/2/op,"""fitup_attach_to_marking_line"""
 flow,/steps/3/base/instance,"""A1"""
 flow,/steps/3/base/p0,"""points.B"""
