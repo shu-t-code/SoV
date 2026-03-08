@@ -312,6 +312,11 @@ class ProcessEngine:
         if not all(name in points for name in ("A", "B", "C", "D")):
             return
 
+        child_ids = list(getattr(state, "_children", {}).get(inst_id, []))
+        point_x_values = [float(xyz[0]) for xyz in points.values() if isinstance(xyz, (list, tuple)) and len(xyz) >= 1]
+        min_local_x = min(point_x_values) if point_x_values else 0.0
+        max_local_x = max(point_x_values) if point_x_values else 0.0
+
         y_ab = 0.5 * (float(points["A"][1]) + float(points["B"][1]))
         y_cd = 0.5 * (float(points["C"][1]) + float(points["D"][1]))
         tol = 1e-9
@@ -331,6 +336,23 @@ class ProcessEngine:
             sign = -1.0 if dx > 0.0 else 1.0
             return np.array([sign * shrink, 0.0, 0.0], dtype=float)
 
+        def _equivalent_rigid_local_x(shrink: float, weld_x_local: float | None) -> float:
+            if shrink <= 0.0:
+                return 0.0
+            if weld_x_local is None:
+                return -shrink
+            center_x = 0.5 * (min_local_x + max_local_x)
+            return -shrink if float(weld_x_local) <= center_x else shrink
+
+        def _propagate_child_rigid_shift(local_dx: float) -> None:
+            if abs(local_dx) <= tol or not child_ids:
+                return
+            parent_tr = state.get_transform(inst_id)
+            d_world = rpy_to_rotation_matrix(*parent_tr["rpy_deg"]) @ np.array([local_dx, 0.0, 0.0], dtype=float)
+            for child_id in child_ids:
+                child_tr = state.get_transform(child_id)
+                state.set_transform(child_id, np.array(child_tr["origin"], dtype=float) + d_world, child_tr["rpy_deg"])
+
         for pair_metric, pair_index in selected_metrics:
             if pair_index == 0:
                 g_real = self._extract_realized_gap(pair_metric, "g_real_0", "g_real_1", "g_real")
@@ -344,6 +366,7 @@ class ProcessEngine:
                     d_local = _signed_local_x_shrinkage(pname, shrink, weld_x_local)
                     if np.any(d_local):
                         state.add_point_offset(inst_id, pname, d_local)
+                _propagate_child_rigid_shift(_equivalent_rigid_local_x(shrink, weld_x_local))
                 continue
 
             if pair_index == 1:
@@ -360,6 +383,7 @@ class ProcessEngine:
                     d_local = _signed_local_x_shrinkage(pname, shrink, weld_x_local)
                     if np.any(d_local):
                         state.add_point_offset(inst_id, pname, d_local)
+                _propagate_child_rigid_shift(_equivalent_rigid_local_x(shrink, weld_x_local))
                 continue
 
             s0 = 0.18 * max(self._extract_realized_gap(pair_metric, "g_real_0", "g_real_1", "g_real"), 0.0)
@@ -383,6 +407,17 @@ class ProcessEngine:
                     d1_local = _signed_local_x_shrinkage(pname, s1, weld_x_local_1)
                     if np.any(d1_local):
                         state.add_point_offset(inst_id, pname, d1_local)
+
+            rigid_shifts = []
+            if s0 > 0.0:
+                rigid_shifts.append(_equivalent_rigid_local_x(s0, pair_metric.get("weld_x_local_0")))
+            if s1 > 0.0:
+                weld_x_local_1 = pair_metric.get("weld_x_local_1")
+                if weld_x_local_1 is None:
+                    weld_x_local_1 = pair_metric.get("weld_x_local_0")
+                rigid_shifts.append(_equivalent_rigid_local_x(s1, weld_x_local_1))
+            if rigid_shifts:
+                _propagate_child_rigid_shift(float(np.mean(rigid_shifts)))
 
     def _fitup_attach_to_marking_line(self, step: Dict[str, Any], state: AssemblyState):
         base = step.get("base", {})
