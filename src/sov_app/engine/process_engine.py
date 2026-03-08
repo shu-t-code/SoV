@@ -510,14 +510,13 @@ class ProcessEngine:
                 ref_line_points.append(ref.split(".", 1)[1])
         ref_line_points = sorted(dict.fromkeys(ref_line_points))
 
-        aux_ref_points = [
-            name
-            for name in ref_line_points
-            if name in all_point_names and str(name).upper().startswith("REF_")
-        ]
-
-        excluded_point_names = sorted(dict.fromkeys(aux_ref_points))
-        candidate_point_names = [name for name in all_point_names if name not in excluded_point_names]
+        candidate_without_ref = [name for name in all_point_names if name not in ref_line_points]
+        if len(candidate_without_ref) == 4:
+            candidate_point_names = candidate_without_ref
+            excluded_point_names = [name for name in ref_line_points if name in all_point_names]
+        else:
+            candidate_point_names = all_point_names
+            excluded_point_names = []
 
         if len(candidate_point_names) != 4:
             step_id = str(step.get("id", ""))
