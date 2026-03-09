@@ -370,9 +370,18 @@ class InteractivePointSelector(QWidget):
         return segments
 
     def _on_pick(self, event):
-        if not getattr(event, "ind", None):
+        inds = getattr(event, "ind", None)
+        if inds is None:
             return
-        p = self.all_selectable_points[event.ind[0]]
+        # event.ind may be a numpy array and can contain multiple hit indices.
+        try:
+            if len(inds) == 0:
+                return
+            pick_i = int(inds[0])
+        except TypeError:
+            pick_i = int(inds)
+
+        p = self.all_selectable_points[pick_i]
         if any((a == p["inst_id"] and b == p["ref"]) for a, b, _ in self.selected_points):
             return
         if len(self.selected_points) >= 2:
