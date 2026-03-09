@@ -353,10 +353,22 @@ class ProcessEngine:
                 child_tr = state.get_transform(child_id)
                 state.set_transform(child_id, np.array(child_tr["origin"], dtype=float) + d_world, child_tr["rpy_deg"])
 
+        def _compute_shrink(metric: Dict[str, Any], gap_keys: tuple[str, ...], r_keys: tuple[str, ...]) -> float:
+            g_real = max(self._extract_realized_gap(metric, *gap_keys), 0.0)
+            r_value = 1.0
+            for key in r_keys:
+                if key in metric and metric.get(key) is not None:
+                    r_value = float(metric.get(key))
+                    break
+            return 0.18 * g_real * (r_value**2)
+
         for pair_metric, pair_index in selected_metrics:
             if pair_index == 0:
-                g_real = self._extract_realized_gap(pair_metric, "g_real_0", "g_real_1", "g_real")
-                shrink = 0.18 * max(g_real, 0.0)
+                shrink = _compute_shrink(
+                    pair_metric,
+                    ("g_real_0", "g_real_1", "g_real"),
+                    ("shrinkage_r_0", "shrinkage_r", "shrinkage_r_1"),
+                )
                 if shrink <= 0.0:
                     continue
                 weld_x_local = pair_metric.get("weld_x_local_0")
@@ -370,8 +382,11 @@ class ProcessEngine:
                 continue
 
             if pair_index == 1:
-                g_real = self._extract_realized_gap(pair_metric, "g_real_1", "g_real_0", "g_real")
-                shrink = 0.18 * max(g_real, 0.0)
+                shrink = _compute_shrink(
+                    pair_metric,
+                    ("g_real_1", "g_real_0", "g_real"),
+                    ("shrinkage_r_1", "shrinkage_r", "shrinkage_r_0"),
+                )
                 if shrink <= 0.0:
                     continue
                 weld_x_local = pair_metric.get("weld_x_local_1")
@@ -386,8 +401,16 @@ class ProcessEngine:
                 _propagate_child_rigid_shift(_equivalent_rigid_local_x(shrink, weld_x_local))
                 continue
 
-            s0 = 0.18 * max(self._extract_realized_gap(pair_metric, "g_real_0", "g_real_1", "g_real"), 0.0)
-            s1 = 0.18 * max(self._extract_realized_gap(pair_metric, "g_real_1", "g_real_0", "g_real"), 0.0)
+            s0 = _compute_shrink(
+                pair_metric,
+                ("g_real_0", "g_real_1", "g_real"),
+                ("shrinkage_r_0", "shrinkage_r", "shrinkage_r_1"),
+            )
+            s1 = _compute_shrink(
+                pair_metric,
+                ("g_real_1", "g_real_0", "g_real"),
+                ("shrinkage_r_1", "shrinkage_r", "shrinkage_r_0"),
+            )
 
             if s0 > 0.0:
                 weld_x_local_0 = pair_metric.get("weld_x_local_0")
@@ -653,6 +676,8 @@ class ProcessEngine:
                 em_a = self._sample(butt_fitup["eps_mA"])
                 em_b = self._sample(butt_fitup["eps_mB"])
                 w = w0_model + l_fit + (em_b - em_a)
+                r_spec = butt_fitup.get("shrinkage_r")
+                r = float(self._sample(r_spec)) if r_spec is not None else 1.0
 
                 d_a = d_nom + self._sample(butt_fitup["eps_cA"])
                 d_b = d_nom + self._sample(butt_fitup["eps_cB"])
@@ -672,6 +697,7 @@ class ProcessEngine:
                     "dA": float(d_a),
                     "dB": float(d_b),
                     "g_real": float(g_real),
+                    "shrinkage_r": float(r),
                     "interferes": interferes,
                     "clipped": clipped,
                 }
@@ -756,6 +782,7 @@ class ProcessEngine:
                     "dA": pair0["dA"],
                     "dB": pair0["dB"],
                     "g_real": pair0["g_real"],
+                    "shrinkage_r": pair0["shrinkage_r"],
                     "interferes": pair0["interferes"],
                     "delta_y": float(delta_y),
                     "w_0": pair0["w"],
@@ -765,6 +792,7 @@ class ProcessEngine:
                     "dA_0": pair0["dA"],
                     "dB_0": pair0["dB"],
                     "g_real_0": pair0["g_real"],
+                    "shrinkage_r_0": pair0["shrinkage_r"],
                     "interferes_0": pair0["interferes"],
                     "clipped_0": pair0["clipped"],
                     "w_1": None,
@@ -774,6 +802,7 @@ class ProcessEngine:
                     "dA_1": None,
                     "dB_1": None,
                     "g_real_1": None,
+                    "shrinkage_r_1": None,
                     "interferes_1": None,
                     "clipped_1": None,
                 }
@@ -787,6 +816,7 @@ class ProcessEngine:
                             "dA_1": pair1["dA"],
                             "dB_1": pair1["dB"],
                             "g_real_1": pair1["g_real"],
+                            "shrinkage_r_1": pair1["shrinkage_r"],
                             "interferes_1": pair1["interferes"],
                             "clipped_1": pair1["clipped"],
                         }

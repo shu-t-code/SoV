@@ -399,3 +399,76 @@ def test_welding_distortion_butt_transverse_shrinkage_clamps_negative_gap_to_zer
     engine.apply_steps(state)
 
     assert state.point_offsets["G1"] == {}
+
+
+def test_welding_distortion_butt_transverse_shrinkage_applies_r_squared_and_propagates_same_value_to_child() -> None:
+    geom = GeometryModel(
+        {
+            "prototypes": [
+                {
+                    "id": "plate",
+                    "dims": {"L": 200.0, "H": 100.0, "t": 10.0},
+                    "features": {
+                        "points": {
+                            "A": [0.0, 0.0, 0.0],
+                            "B": [200.0, 0.0, 0.0],
+                            "C": [200.0, 100.0, 0.0],
+                            "D": [0.0, 100.0, 0.0],
+                        }
+                    },
+                },
+                {
+                    "id": "child",
+                    "dims": {"L": 20.0, "H": 10.0, "t": 10.0},
+                    "features": {"points": {"P": [0.0, 0.0, 0.0]}},
+                },
+            ],
+            "instances": [
+                {"id": "G1", "prototype": "plate", "frame": {"parent": "world", "origin": [0.0, 0.0, 0.0], "rpy_deg": [0.0, 0.0, 0.0]}},
+                {"id": "C1", "prototype": "child", "frame": {"parent": "G1", "origin": [10.0, 0.0, 0.0], "rpy_deg": [0.0, 0.0, 0.0]}},
+            ],
+        }
+    )
+    flow = FlowModel(
+        {
+            "selectors": {"GUEST": {"ids": ["G1"]}},
+            "steps": [
+                {
+                    "id": "weld_step",
+                    "op": "welding_distortion",
+                    "target": {"selector": "GUEST"},
+                    "model": {
+                        "outplane_dz": {"type": "Fixed", "value": 0.0},
+                        "weak_bending_about_x": {"type": "Fixed", "value": 0.0},
+                    },
+                }
+            ],
+        }
+    )
+
+    state = AssemblyState(geom)
+    state.butt_fitup_metrics = {
+        "fitup_step": [
+            {
+                "guest_instance": "G1",
+                "pair_index": 0,
+                "g_real_0": 10.0,
+                "weld_x_local_0": None,
+                "shrinkage_r_0": 0.5,
+            }
+        ]
+    }
+
+    engine = ProcessEngine(geom, flow, np.random.default_rng(0))
+    child_before = np.array(state.get_transform("C1")["origin"], dtype=float)
+
+    engine.apply_steps(state)
+
+    expected_shrink = 0.18 * 10.0 * (0.5**2)
+    expected_lower = np.array([-expected_shrink, 0.0, 0.0], dtype=float)
+
+    assert np.allclose(state.get_point_offset("G1", "A"), expected_lower, atol=1e-8)
+    assert np.allclose(state.get_point_offset("G1", "B"), expected_lower, atol=1e-8)
+
+    child_after = np.array(state.get_transform("C1")["origin"], dtype=float)
+    assert np.allclose(child_after - child_before, expected_lower, atol=1e-8)

@@ -2,7 +2,7 @@
 flow,/dists/LN_fillet_z_lower/mean,0.4
 flow,/dists/LN_fillet_z_lower/std,0.2
 flow,/dists/LN_fillet_z_lower/type,"""LogNormalLinear"""
-flow,/dists/LN_fit_L/mean,4
+flow,/dists/LN_fit_L/mean,0.72
 flow,/dists/LN_fit_L/std,1.5
 flow,/dists/LN_fit_L/type,"""LogNormalLinear"""
 flow,/dists/LN_gap_x/mean,4
