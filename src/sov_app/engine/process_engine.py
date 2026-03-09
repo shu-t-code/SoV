@@ -312,6 +312,11 @@ class ProcessEngine:
         if not all(name in points for name in ("A", "B", "C", "D")):
             return
 
+        child_ids = list(getattr(state, "_children", {}).get(inst_id, []))
+        point_x_values = [float(xyz[0]) for xyz in points.values() if isinstance(xyz, (list, tuple)) and len(xyz) >= 1]
+        min_local_x = min(point_x_values) if point_x_values else 0.0
+        max_local_x = max(point_x_values) if point_x_values else 0.0
+
         y_ab = 0.5 * (float(points["A"][1]) + float(points["B"][1]))
         y_cd = 0.5 * (float(points["C"][1]) + float(points["D"][1]))
         tol = 1e-9
@@ -331,6 +336,23 @@ class ProcessEngine:
             sign = -1.0 if dx > 0.0 else 1.0
             return np.array([sign * shrink, 0.0, 0.0], dtype=float)
 
+        def _equivalent_rigid_local_x(shrink: float, weld_x_local: float | None) -> float:
+            if shrink <= 0.0:
+                return 0.0
+            if weld_x_local is None:
+                return -shrink
+            center_x = 0.5 * (min_local_x + max_local_x)
+            return -shrink if float(weld_x_local) <= center_x else shrink
+
+        def _propagate_child_rigid_shift(local_dx: float) -> None:
+            if abs(local_dx) <= tol or not child_ids:
+                return
+            parent_tr = state.get_transform(inst_id)
+            d_world = rpy_to_rotation_matrix(*parent_tr["rpy_deg"]) @ np.array([local_dx, 0.0, 0.0], dtype=float)
+            for child_id in child_ids:
+                child_tr = state.get_transform(child_id)
+                state.set_transform(child_id, np.array(child_tr["origin"], dtype=float) + d_world, child_tr["rpy_deg"])
+
         for pair_metric, pair_index in selected_metrics:
             if pair_index == 0:
                 g_real = self._extract_realized_gap(pair_metric, "g_real_0", "g_real_1", "g_real")
@@ -344,6 +366,7 @@ class ProcessEngine:
                     d_local = _signed_local_x_shrinkage(pname, shrink, weld_x_local)
                     if np.any(d_local):
                         state.add_point_offset(inst_id, pname, d_local)
+                _propagate_child_rigid_shift(_equivalent_rigid_local_x(shrink, weld_x_local))
                 continue
 
             if pair_index == 1:
@@ -360,6 +383,7 @@ class ProcessEngine:
                     d_local = _signed_local_x_shrinkage(pname, shrink, weld_x_local)
                     if np.any(d_local):
                         state.add_point_offset(inst_id, pname, d_local)
+                _propagate_child_rigid_shift(_equivalent_rigid_local_x(shrink, weld_x_local))
                 continue
 
             s0 = 0.18 * max(self._extract_realized_gap(pair_metric, "g_real_0", "g_real_1", "g_real"), 0.0)
@@ -383,6 +407,17 @@ class ProcessEngine:
                     d1_local = _signed_local_x_shrinkage(pname, s1, weld_x_local_1)
                     if np.any(d1_local):
                         state.add_point_offset(inst_id, pname, d1_local)
+
+            rigid_shifts = []
+            if s0 > 0.0:
+                rigid_shifts.append(_equivalent_rigid_local_x(s0, pair_metric.get("weld_x_local_0")))
+            if s1 > 0.0:
+                weld_x_local_1 = pair_metric.get("weld_x_local_1")
+                if weld_x_local_1 is None:
+                    weld_x_local_1 = pair_metric.get("weld_x_local_0")
+                rigid_shifts.append(_equivalent_rigid_local_x(s1, weld_x_local_1))
+            if rigid_shifts:
+                _propagate_child_rigid_shift(float(np.mean(rigid_shifts)))
 
     def _fitup_attach_to_marking_line(self, step: Dict[str, Any], state: AssemblyState):
         base = step.get("base", {})
@@ -655,10 +690,10 @@ class ProcessEngine:
 
                 p0 = get_world_point(self.geom, state, base_id, base_p0)
                 p1 = get_world_point(self.geom, state, base_id, base_p1)
-                u = self._unit(p1 - p0)
+                # t_dir: marking-line direction, v: transverse (gap) direction.
+                t_dir = self._unit(p1 - p0)
                 n = self._get_plane_normal_world(base_id, state)
-                # u is the welding-line direction and v is the in-plane direction orthogonal to u.
-                v = self._safe_unit_from_cross(n, u, np.array([0.0, 1.0, 0.0], dtype=float))
+                v = self._safe_unit_from_cross(n, t_dir, np.array([0.0, 1.0, 0.0], dtype=float))
 
                 pair0 = _sample_pair_fitup()
                 # q0/q1 must be satisfied by one rigid-body transform, so both targets
@@ -667,18 +702,25 @@ class ProcessEngine:
 
                 if guest_id not in delta_y_applied_guests:
                     gtr = state.get_transform(guest_id)
-                    state.set_transform(guest_id, gtr["origin"] + delta_y * u, gtr["rpy_deg"])
+                    state.set_transform(guest_id, gtr["origin"] + delta_y * t_dir, gtr["rpy_deg"])
                     delta_y_applied_guests.add(guest_id)
 
                 q0 = get_world_point(self.geom, state, guest_id, guest_q0)
-                # PR1/PR2 convention: w is interpreted as the translation amount along v.
-                q0_target = p0 + pair0["w"] * v
+                # Butt fitup targets are built in marking-line basis.
+                # When explicit marking lines are not provided in step dict, we construct
+                # virtual marking lines from edge refs + sampled dA/dB:
+                #   M_A = E_A + dA * v
+                #   M_B = E_B - dB * v
+                # and enforce: M_B_target = M_A - w * v
+                # => E_B_target = E_A + (dA + dB - w) * v = E_A - g_real * v
+                # This keeps w as marking-line spacing (not edge absolute offset).
+                q0_target = p0 + (pair0["dA"] + pair0["dB"] - pair0["w"]) * v
                 t = q0_target - q0
                 gtr_after_align = state.get_transform(guest_id)
                 state.set_transform(guest_id, gtr_after_align["origin"] + t, gtr_after_align["rpy_deg"])
 
                 if guest_q1 and pair1 is not None:
-                    q1_target = p1 + pair1["w"] * v
+                    q1_target = p1 + (pair1["dA"] + pair1["dB"] - pair1["w"]) * v
                     gtr_aligned = state.get_transform(guest_id)
                     origin_old = np.array(gtr_aligned["origin"], dtype=float)
                     rpy_old = gtr_aligned["rpy_deg"]

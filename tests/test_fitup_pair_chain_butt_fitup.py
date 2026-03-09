@@ -78,7 +78,7 @@ def test_butt_fitup_new_mode_records_metrics_and_shares_delta_y() -> None:
 
 
 
-def test_butt_fitup_with_q1_uses_rigid_transform_for_two_point_alignment() -> None:
+def test_butt_fitup_with_q1_uses_marking_line_basis_for_two_point_alignment() -> None:
     geom = _build_geom_two_pairs()
     flow = FlowModel(
         {
@@ -109,9 +109,12 @@ def test_butt_fitup_with_q1_uses_rigid_transform_for_two_point_alignment() -> No
     state = AssemblyState(geom)
     engine = ProcessEngine(geom, flow, np.random.default_rng(0))
 
-    # pair0: w=0, pair1: w=0 + (emB-emA)=10
-    dist_seq = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10.0, 0.0, 0.0, 0.0]
-    engine._sample = lambda spec: dist_seq.pop(0)
+    # Samples per pair: [L, eps_mA, eps_mB, eps_cA, eps_cB]
+    # delta_y is Fixed(0), so _sample is not called for delta_y.
+    # pair0 => w=0, dA=dB=0 => edge shift 0
+    # pair1 => w=10, dA=dB=0 => edge shift -10 * v
+    sample_seq = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10.0, 0.0, 0.0]
+    engine._sample = lambda spec: sample_seq.pop(0)
 
     engine.apply_steps(state)
 
@@ -120,8 +123,8 @@ def test_butt_fitup_with_q1_uses_rigid_transform_for_two_point_alignment() -> No
     v = np.array([-1.0, 0.0, 0.0], dtype=float)
 
     metric = state.butt_fitup_metrics["fitup_step"][0]
-    q0_target = p0 + metric["w_0"] * v
-    q1_target = p1 + metric["w_1"] * v
+    q0_target = p0 + (metric["dA_0"] + metric["dB_0"] - metric["w_0"]) * v
+    q1_target = p1 + (metric["dA_1"] + metric["dB_1"] - metric["w_1"]) * v
 
     q0 = get_world_point(geom, state, "G1", "points.A")
     q1 = get_world_point(geom, state, "G1", "points.D")
