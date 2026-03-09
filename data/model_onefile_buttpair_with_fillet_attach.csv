@@ -132,7 +132,7 @@ flow,/steps/3/model/butt_fitup/eps_cB,N_eps_c
 flow,/steps/3/model/butt_fitup/eps_mA,N_eps_m
 flow,/steps/3/model/butt_fitup/eps_mB,N_eps_m
 flow,/steps/3/model/butt_fitup/g0,4
-flow,/steps/3/model/butt_fitup/w0,150
+flow,/steps/3/model/butt_fitup/w0,146
 flow,/steps/3/model/follow_base_rpy,true
 flow,/steps/3/model/keep_z,true
 flow,/steps/3/model/signed_logn,true
