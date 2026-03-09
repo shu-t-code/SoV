@@ -2,7 +2,7 @@
 flow,/dists/LN_fillet_z_lower/mean,0.4
 flow,/dists/LN_fillet_z_lower/std,0.2
 flow,/dists/LN_fillet_z_lower/type,"""LogNormalLinear"""
-flow,/dists/LN_fit_L/mean,0.72
+flow,/dists/LN_fit_L/mean,4
 flow,/dists/LN_fit_L/std,1.5
 flow,/dists/LN_fit_L/type,"""LogNormalLinear"""
 flow,/dists/LN_gap_x/mean,4
@@ -132,7 +132,7 @@ flow,/steps/3/model/butt_fitup/eps_cB,N_eps_c
 flow,/steps/3/model/butt_fitup/eps_mA,N_eps_m
 flow,/steps/3/model/butt_fitup/eps_mB,N_eps_m
 flow,/steps/3/model/butt_fitup/g0,4
-flow,/steps/3/model/butt_fitup/w0,150
+flow,/steps/3/model/butt_fitup/w0,146
 flow,/steps/3/model/follow_base_rpy,true
 flow,/steps/3/model/keep_z,true
 flow,/steps/3/model/signed_logn,true
