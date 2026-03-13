@@ -260,10 +260,24 @@ class InteractivePointSelector(QWidget):
                 except Exception:
                     pass
 
-        if all_edge_segments and Line3DCollection is not None:
-            wireframe = Line3DCollection(all_edge_segments, colors="tab:blue", linewidths=2.8, alpha=0.9)
-            wireframe.set_picker(False)
-            self.ax.add_collection3d(wireframe)
+        # NOTE:
+        # `Line3DCollection` is sorted as one 3D artist in mplot3d.  When the collection
+        # contains both near/far edges, painter-order artifacts can hide parts of back-side
+        # outlines.  Draw each edge as an individual Line3D artist so depth sorting is done
+        # per edge and the rear contour remains stable.
+        if all_edge_segments:
+            for p0, p1 in all_edge_segments:
+                self.ax.plot(
+                    [p0[0], p1[0]],
+                    [p0[1], p1[1]],
+                    [p0[2], p1[2]],
+                    color="tab:blue",
+                    linewidth=2.8,
+                    alpha=0.9,
+                    picker=False,
+                    clip_on=False,
+                    antialiased=True,
+                )
 
         bounds_points = [np.asarray(seg[0], dtype=float) for seg in all_edge_segments] + [
             np.asarray(seg[1], dtype=float) for seg in all_edge_segments
